@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Join ACE — Registration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+
+  <!-- ============================================================
+       🔥 FIREBASE INTEGRATION — Milestone 7
+       ============================================================
+       1. Go to https://console.firebase.google.com → Create a project
+       2. Project Settings → General → "Your apps" → Add a Web app (</>)
+       3. Copy the config object Firebase gives you
+       4. Paste it below, replacing the placeholder values
+       5. In the Firebase Console, enable:
+            - Authentication → Sign-in method → Email/Password
+            - Firestore Database → Create database → Start in test mode
+       That's it — no server, no build step. Just open this file.
+  ============================================================ -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+      signOut, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import {
+      getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc,
+      updateDoc, deleteDoc, query, where, onSnapshot, orderBy
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // 🔥 PASTE YOUR FIREBASE CONFIG HERE — replace every value below
+   const firebaseConfig = {
+  apiKey: "AIzaSyDPa9aTUXr53jf9aNY4NBHzyowpuMHoKT4",
+  authDomain: "ace-club-portal-ebbaf.firebaseapp.com",
+  projectId: "ace-club-portal-ebbaf",
+  storageBucket: "ace-club-portal-ebbaf.firebasestorage.app",
+  messagingSenderId: "790077782490",
+  appId: "1:790077782490:web:001f6a4b3cd26025f8a8e3"
+};
+
+    // Detect whether real config has been pasted in. While it's still the
+    // placeholder, the app runs fully offline on in-memory demo data —
+    // nothing breaks, nothing tries to reach the network.
+    const FIREBASE_CONFIGURED = firebaseConfig.apiKey !== "YOUR_API_KEY";
+
+    let app=null, auth=null, db=null;
+    if (FIREBASE_CONFIGURED) {
+      app  = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db   = getFirestore(app);
+    } else {
+      console.warn("[Firebase] Not configured yet — running on in-memory demo data. See the 🔥 PASTE YOUR FIREBASE CONFIG HERE comment in index.html.");
+    }
+
+    // ── Thin data-access layer exposed to the rest of the app (window.ACEDB) ──
+    // Every method here mirrors a plain in-memory operation, so each store
+    // can be migrated one at a time without rewriting its calling code.
+    window.ACEDB = {
+      isLive: FIREBASE_CONFIGURED,
+
+      // Auth
+      async login(email, password) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        return cred.user;
+      },
+      async register(email, password) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        return cred.user;
+      },
+      async logout() {
+        if (!FIREBASE_CONFIGURED) return;
+        await signOut(auth);
+      },
+      onAuthChange(cb) {
+        if (!FIREBASE_CONFIGURED) return () => {};
+        return onAuthStateChanged(auth, cb);
+      },
+
+      // Firestore — generic collection helpers
+      // collectionName examples: 'members', 'users', 'tasks', 'wingTasks',
+      // 'announcements', 'events', 'inventory', 'inventoryLog', 'issues',
+      // 'minutes', 'notifications'
+      async getAll(collectionName) {
+        if (!FIREBASE_CONFIGURED) return [];
+        const snap = await getDocs(collection(db, collectionName));
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      },
+      async getWhere(collectionName, field, op, value) {
+        if (!FIREBASE_CONFIGURED) return [];
+        const q = query(collection(db, collectionName), where(field, op, value));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      },
+      async getOne(collectionName, id) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const snap = await getDoc(doc(db, collectionName, id));
+        return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+      },
+      async add(collectionName, data) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const ref = await addDoc(collection(db, collectionName), data);
+        return ref.id;
+      },
+      async set(collectionName, id, data) {
+        if (!FIREBASE_CONFIGURED) return;
+        await setDoc(doc(db, collectionName, id), data);
+      },
+      async update(collectionName, id, data) {
+        if (!FIREBASE_CONFIGURED) return;
+        await updateDoc(doc(db, collectionName, id), data);
+      },
+      async remove(collectionName, id) {
+        if (!FIREBASE_CONFIGURED) return;
+        await deleteDoc(doc(db, collectionName, id));
+      },
+      // Live updates — calls cb(array) every time the collection changes.
+      // Returns an unsubscribe function.
+      watch(collectionName, cb) {
+        if (!FIREBASE_CONFIGURED) return () => {};
+        return onSnapshot(collection(db, collectionName), snap => {
+          cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+      },
+    };
+
+    // Let the rest of the app (which loads after this module) know the
+    // data layer is ready, regardless of whether Firebase is configured.
+    window.dispatchEvent(new CustomEvent('acedb-ready', { detail: { live: FIREBASE_CONFIGURED } }));
+  </script>
+</head>
+<body>
+
+  <!-- 🔥 Firebase connection status banner (Milestone 7) -->
+  <div id="acedb-status-banner" style="display:none;position:fixed;bottom:12px;right:12px;z-index:9999;font-family:monospace;font-size:11px;padding:6px 12px;border-radius:8px;background:rgba(245,158,11,0.12);color:rgb(245,158,11);border:1px solid rgba(245,158,11,0.3);">
+    ⚠ Firebase not configured — running on demo data
+  </div>
+
+  <!-- ============================================================
+       NAVBAR — Milestone 1.2
+       Fixed, appears on all pages
+  ============================================================ -->
+  <nav class="navbar" id="navbar">
+    <div class="navbar-inner">
+
+      <!-- Logo -->
+      <a class="navbar-logo" onclick="navigate('home')">
+        <div class="navbar-logo-mark">ACE</div>
+        <div class="navbar-logo-text">
+          <span class="navbar-logo-name">ACE Club</span>
+          <span class="navbar-logo-tagline">AI · Cyber · Embedded</span>
+        </div>
+      </a>
+
+      <!-- Desktop Nav Links -->
+      <ul class="navbar-links">
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('about')">About</button>
+        </li>
+        <li style="position:relative;">
+          <button class="navbar-link navbar-link-wings" id="wingsBtn" onclick="toggleWingsDropdown()">
+            Wings
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <!-- Wings Dropdown -->
+            <div class="wings-dropdown" id="wingsDropdown">
+              <div class="wings-dropdown-item" onclick="scrollToSection('wings')">
+                <div class="wings-dropdown-dot" style="background: var(--ai-cyan);"></div>
+                <div>
+                  <div class="wings-dropdown-label">AI Wing</div>
+                  <div class="wings-dropdown-sub">Machine Learning & Data</div>
+                </div>
+              </div>
+              <div class="wings-dropdown-item" onclick="scrollToSection('wings')">
+                <div class="wings-dropdown-dot" style="background: var(--cyber-purple);"></div>
+                <div>
+                  <div class="wings-dropdown-label">Cybersecurity</div>
+                  <div class="wings-dropdown-sub">Network & System Security</div>
+                </div>
+              </div>
+              <div class="wings-dropdown-item" onclick="scrollToSection('wings')">
+                <div class="wings-dropdown-dot" style="background: var(--embedded-green);"></div>
+                <div>
+                  <div class="wings-dropdown-label">Embedded Systems</div>
+                  <div class="wings-dropdown-sub">IoT & Hardware</div>
+                </div>
+              </div>
+            </div>
+          </button>
+        </li>
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('team')">Team</button>
+        </li>
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('events')">Events</button>
+        </li>
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('resources')">Resources</button>
+        </li>
+      </ul>
+
+      <!-- Right Actions -->
+      <div class="navbar-right">
+        <button class="navbar-login-btn" onclick="navigate('login')">Member Login</button>
+        <button class="navbar-join-btn" onclick="navigate('register')">
+          Join ACE
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 7H12M8 3L12 7L8 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <!-- Notification Bell (Milestone 6) -->
+        <div class="navbar-bell-wrap" id="navbar-bell-wrap" style="display:none;">
+          <button class="navbar-bell-btn" id="navbar-bell-btn" onclick="toggleNotifPanel(event)" aria-label="Notifications">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M18 8C18 6.4 17.4 4.9 16.2 3.8C15.1 2.6 13.6 2 12 2C10.4 2 8.9 2.6 7.8 3.8C6.6 4.9 6 6.4 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M13.7 21C13.5 21.3 13.3 21.6 13 21.7C12.7 21.9 12.4 22 12 22C11.6 22 11.3 21.9 11 21.7C10.7 21.6 10.5 21.3 10.3 21" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="navbar-bell-badge" id="navbar-bell-badge" style="display:none;">0</span>
+          </button>
+          <div class="navbar-notif-panel" id="navbar-notif-panel">
+            <div class="navbar-notif-header">
+              <span>Notifications</span>
+              <span class="navbar-notif-markall" onclick="markAllNotificationsRead()">Mark all read</span>
+            </div>
+            <div class="navbar-notif-list" id="navbar-notif-list"></div>
+          </div>
+        </div>
+        <!-- Hamburger -->
+        <button class="navbar-hamburger" id="hamburger" onclick="toggleMobileMenu()" aria-label="Toggle menu">
+          <div class="hamburger-line"></div>
+          <div class="hamburger-line"></div>
+          <div class="hamburger-line"></div>
+        </button>
+      </div>
+
+    </div>
+  </nav>
+
+  <!-- Mobile Menu Drawer -->
+  <div class="mobile-menu" id="mobileMenu">
+    <button class="mobile-nav-link" onclick="scrollToSection('about'); closeMobileMenu()">About ACE</button>
+    <button class="mobile-nav-link" onclick="scrollToSection('vision'); closeMobileMenu()">Vision & Mission</button>
+    <button class="mobile-nav-link" onclick="scrollToSection('team'); closeMobileMenu()">Core Team</button>
+    <button class="mobile-nav-link" onclick="scrollToSection('events'); closeMobileMenu()">Events</button>
+
+    <div class="mobile-menu-wings">
+      <div class="mobile-menu-wings-label">Wings</div>
+      <button class="mobile-nav-link" onclick="scrollToSection('wings'); closeMobileMenu()">
+        <span style="color: var(--ai-cyan);">⚡</span> AI Wing
+      </button>
+      <button class="mobile-nav-link" onclick="scrollToSection('wings'); closeMobileMenu()">
+        <span style="color: var(--cyber-purple);">🔐</span> Cybersecurity
+      </button>
+      <button class="mobile-nav-link" onclick="scrollToSection('wings'); closeMobileMenu()">
+        <span style="color: var(--embedded-green);">🔧</span> Embedded Systems
+      </button>
+    </div>
+
+    <div class="mobile-menu-actions">
+      <button class="btn btn-ghost w-full" onclick="navigate('login'); closeMobileMenu()">Member Login</button>
+      <button class="navbar-join-btn" style="width:100%; justify-content:center; padding: var(--space-3);" onclick="navigate('register'); closeMobileMenu()">
+        Join ACE →
+      </button>
+    </div>
+  </div>
+  <div>
+    <div class="navbar-spacer"></div>
+
+    <!-- Multi-step wrapper -->
+    <div class="reg-page" id="regPage">
+
+      <!-- ── STEP INDICATOR ───────────────────────── -->
+      <div class="reg-steps-bar">
+        <div class="container">
+          <div class="reg-steps">
+            <div class="reg-step active" id="step-ind-1">
+              <div class="reg-step-num">1</div>
+              <div class="reg-step-label">Personal Info</div>
+            </div>
+            <div class="reg-step-line" id="step-line-1"></div>
+            <div class="reg-step" id="step-ind-2">
+              <div class="reg-step-num">2</div>
+              <div class="reg-step-label">Wing &amp; Skills</div>
+            </div>
+            <div class="reg-step-line" id="step-line-2"></div>
+            <div class="reg-step" id="step-ind-3">
+              <div class="reg-step-num">3</div>
+              <div class="reg-step-label">Links &amp; Review</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="reg-body container">
+
+        <!-- ══ STEP 1: Personal Info ══ -->
+        <div class="reg-panel" id="reg-step-1">
+          <div class="reg-panel-header">
+            <span class="section-eyebrow">Step 1 of 3</span>
+            <h2 class="reg-title">Personal Information</h2>
+            <p class="reg-subtitle">Tell us who you are. All fields marked * are required.</p>
+          </div>
+
+          <div class="reg-form-grid">
+            <div class="form-group">
+              <label class="form-label">Full Name *</label>
+              <input class="form-input" id="f-name" type="text" placeholder="e.g. Arjun Kulkarni" autocomplete="name"/>
+              <div class="form-error" id="err-name"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Roll Number *</label>
+              <input class="form-input" id="f-roll" type="text" placeholder="e.g. 22CSE041" autocomplete="off"/>
+              <div class="form-error" id="err-roll"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Branch *</label>
+              <select class="form-select" id="f-branch">
+                <option value="">Select your branch</option>
+                <option>Computer Science Engineering</option>
+                <option>Electronics &amp; Communication</option>
+                <option>Electrical Engineering</option>
+                <option>Information Technology</option>
+                <option>Mechanical Engineering</option>
+                <option>Civil Engineering</option>
+                <option>E&amp;TC Engineering</option>
+                <option>Instrumentation Engineering</option>
+              </select>
+              <div class="form-error" id="err-branch"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Year *</label>
+              <select class="form-select" id="f-year">
+                <option value="">Select year</option>
+                <option>1st Year</option>
+                <option>2nd Year</option>
+                <option>3rd Year</option>
+                <option>4th Year</option>
+              </select>
+              <div class="form-error" id="err-year"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Email Address *</label>
+              <input class="form-input" id="f-email" type="email" placeholder="you@college.edu" autocomplete="email"/>
+              <div class="form-error" id="err-email"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Phone Number *</label>
+              <input class="form-input" id="f-phone" type="tel" placeholder="10-digit mobile number" autocomplete="tel" maxlength="10"/>
+              <div class="form-error" id="err-phone"></div>
+            </div>
+          </div>
+
+          <div class="reg-actions">
+            <button class="btn btn-ghost" onclick="navigate('home')">← Back to Home</button>
+            <button class="btn btn-primary" onclick="regNextStep(1)">
+              Next: Wing &amp; Skills
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7H11M7.5 3.5L11 7L7.5 10.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- ══ STEP 2: Wing & Skills ══ -->
+        <div class="reg-panel hidden" id="reg-step-2">
+          <div class="reg-panel-header">
+            <span class="section-eyebrow">Step 2 of 3</span>
+            <h2 class="reg-title">Wing &amp; Skills</h2>
+            <p class="reg-subtitle">Choose your wing and tell us what you already know.</p>
+          </div>
+
+          <!-- Wing selector -->
+          <div class="form-group" style="margin-bottom: var(--space-6);">
+            <label class="form-label">Interested Wing *</label>
+            <div class="wing-selector" id="wing-selector">
+              <div class="wing-option" data-wing="AI" onclick="selectWing('AI')">
+                <div class="wing-option-icon" style="background:var(--ai-cyan-dim);color:var(--ai-cyan);">⚡</div>
+                <div class="wing-option-name">AI Wing</div>
+                <div class="wing-option-desc">Machine Learning, Data Science, NLP</div>
+                <div class="wing-option-check">✓</div>
+              </div>
+              <div class="wing-option" data-wing="Cybersecurity" onclick="selectWing('Cybersecurity')">
+                <div class="wing-option-icon" style="background:var(--cyber-purple-dim);color:var(--cyber-purple);">🔐</div>
+                <div class="wing-option-name">Cybersecurity</div>
+                <div class="wing-option-desc">Ethical Hacking, CTF, Network Security</div>
+                <div class="wing-option-check">✓</div>
+              </div>
+              <div class="wing-option" data-wing="Embedded Systems" onclick="selectWing('Embedded Systems')">
+                <div class="wing-option-icon" style="background:var(--embedded-green-dim);color:var(--embedded-green);">🔧</div>
+                <div class="wing-option-name">Embedded Systems</div>
+                <div class="wing-option-desc">IoT, Arduino, ESP32, Firmware</div>
+                <div class="wing-option-check">✓</div>
+              </div>
+            </div>
+            <div class="form-error" id="err-wing"></div>
+          </div>
+
+          <!-- Skills input -->
+          <div class="form-group" style="margin-bottom: var(--space-6);">
+            <label class="form-label">Skills *</label>
+            <p style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--space-3);">Type a skill and press Enter or comma to add. Add at least one.</p>
+            <div class="skills-input-wrap" id="skills-wrap" onclick="document.getElementById('skill-input').focus()">
+              <div class="skills-tags" id="skills-tags"></div>
+              <input class="skills-input" id="skill-input" type="text" placeholder="e.g. Python, Arduino, Kali Linux…" autocomplete="off"/>
+            </div>
+            <div class="form-error" id="err-skills"></div>
+          </div>
+
+          <!-- Skill suggestions -->
+          <div class="skills-suggestions" id="skill-suggestions">
+            <div class="skills-suggestions-label font-mono">Quick add:</div>
+            <div class="skills-chips" id="skill-chips"></div>
+          </div>
+
+          <div class="reg-actions">
+            <button class="btn btn-ghost" onclick="regPrevStep(2)">← Back</button>
+            <button class="btn btn-primary" onclick="regNextStep(2)">
+              Next: Review
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7H11M7.5 3.5L11 7L7.5 10.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- ══ STEP 3: Links & Review ══ -->
+        <div class="reg-panel hidden" id="reg-step-3">
+          <div class="reg-panel-header">
+            <span class="section-eyebrow">Step 3 of 3</span>
+            <h2 class="reg-title">Links &amp; Review</h2>
+            <p class="reg-subtitle">Optional links, then review your details before submitting.</p>
+          </div>
+
+          <!-- Optional links -->
+          <div class="reg-form-grid" style="margin-bottom:var(--space-8);">
+            <div class="form-group">
+              <label class="form-label">
+                GitHub
+                <span class="form-optional font-mono">Optional</span>
+              </label>
+              <div class="form-input-prefix-wrap">
+                <span class="form-input-prefix">github.com/</span>
+                <input class="form-input form-input-prefixed" id="f-github" type="text" placeholder="yourusername"/>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">
+                LinkedIn
+                <span class="form-optional font-mono">Optional</span>
+              </label>
+              <div class="form-input-prefix-wrap">
+                <span class="form-input-prefix">linkedin.com/in/</span>
+                <input class="form-input form-input-prefixed" id="f-linkedin" type="text" placeholder="yourprofile"/>
+              </div>
+            </div>
+          </div>
+
+          <!-- Review summary -->
+          <div class="reg-review" id="reg-review">
+            <div class="reg-review-title font-mono">Review Your Details</div>
+            <div class="reg-review-grid" id="reg-review-grid"></div>
+          </div>
+
+          <!-- Terms -->
+          <div class="reg-terms">
+            <label class="reg-terms-label">
+              <input type="checkbox" id="f-terms" class="reg-checkbox"/>
+              <span>I confirm that the information provided is accurate and I agree to the <span style="color:var(--ai-cyan);cursor:pointer;">ACE Club Code of Conduct</span>.</span>
+            </label>
+            <div class="form-error" id="err-terms"></div>
+          </div>
+
+          <div class="reg-actions">
+            <button class="btn btn-ghost" onclick="regPrevStep(3)">← Back</button>
+            <button class="btn btn-primary" id="submit-btn" onclick="submitRegistration()">
+              Submit Application
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L6 11L12 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- ══ SUCCESS SCREEN (M2.6) ══ -->
+        <div class="reg-panel hidden" id="reg-success">
+          <div class="reg-success-wrap">
+            <div class="reg-success-icon">🎉</div>
+            <div class="badge badge-ai" style="margin-bottom:var(--space-4);">Application Submitted</div>
+            <h2 class="reg-title">Welcome to ACE!</h2>
+            <p class="reg-subtitle" style="max-width:480px;">Your application has been received and is pending approval by the Student Lead. You'll get an email once it's reviewed — usually within 48 hours.</p>
+
+            <!-- Member ID display -->
+            <div class="reg-id-display">
+              <div class="reg-id-label font-mono">Your Member ID</div>
+              <div class="reg-id-value font-mono" id="success-member-id">ACE-AI-2025-001</div>
+              <div class="reg-id-sub">Save this — you'll need it to log in once approved.</div>
+            </div>
+
+            <!-- Status badge -->
+            <div class="reg-status-card">
+              <div class="status-pill status-pending" style="font-size:var(--text-sm);padding:var(--space-2) var(--space-4);">⏳ Pending Approval</div>
+              <p style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-2);">The Student Lead will review and approve your registration.</p>
+            </div>
+
+            <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;justify-content:center;margin-top:var(--space-6);">
+              <button class="btn btn-primary" onclick="navigate('home')">← Back to Home</button>
+              <button class="btn btn-ghost" onclick="resetRegistration()">Register Another</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Member Login — ACE Club</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+
+  <!-- ============================================================
+       🔥 FIREBASE INTEGRATION — Milestone 7
+       ============================================================
+       1. Go to https://console.firebase.google.com → Create a project
+       2. Project Settings → General → "Your apps" → Add a Web app (</>)
+       3. Copy the config object Firebase gives you
+       4. Paste it below, replacing the placeholder values
+       5. In the Firebase Console, enable:
+            - Authentication → Sign-in method → Email/Password
+            - Firestore Database → Create database → Start in test mode
+       That's it — no server, no build step. Just open this file.
+  ============================================================ -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+      signOut, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import {
+      getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc,
+      updateDoc, deleteDoc, query, where, onSnapshot, orderBy
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // 🔥 PASTE YOUR FIREBASE CONFIG HERE — replace every value below
+   const firebaseConfig = {
+  apiKey: "AIzaSyDPa9aTUXr53jf9aNY4NBHzyowpuMHoKT4",
+  authDomain: "ace-club-portal-ebbaf.firebaseapp.com",
+  projectId: "ace-club-portal-ebbaf",
+  storageBucket: "ace-club-portal-ebbaf.firebasestorage.app",
+  messagingSenderId: "790077782490",
+  appId: "1:790077782490:web:001f6a4b3cd26025f8a8e3"
+};
+
+    // Detect whether real config has been pasted in. While it's still the
+    // placeholder, the app runs fully offline on in-memory demo data —
+    // nothing breaks, nothing tries to reach the network.
+    const FIREBASE_CONFIGURED = firebaseConfig.apiKey !== "YOUR_API_KEY";
+
+    let app=null, auth=null, db=null;
+    if (FIREBASE_CONFIGURED) {
+      app  = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db   = getFirestore(app);
+    } else {
+      console.warn("[Firebase] Not configured yet — running on in-memory demo data. See the 🔥 PASTE YOUR FIREBASE CONFIG HERE comment in index.html.");
+    }
+
+    // ── Thin data-access layer exposed to the rest of the app (window.ACEDB) ──
+    // Every method here mirrors a plain in-memory operation, so each store
+    // can be migrated one at a time without rewriting its calling code.
+    window.ACEDB = {
+      isLive: FIREBASE_CONFIGURED,
+
+      // Auth
+      async login(email, password) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        return cred.user;
+      },
+      async register(email, password) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        return cred.user;
+      },
+      async logout() {
+        if (!FIREBASE_CONFIGURED) return;
+        await signOut(auth);
+      },
+      onAuthChange(cb) {
+        if (!FIREBASE_CONFIGURED) return () => {};
+        return onAuthStateChanged(auth, cb);
+      },
+
+      // Firestore — generic collection helpers
+      // collectionName examples: 'members', 'users', 'tasks', 'wingTasks',
+      // 'announcements', 'events', 'inventory', 'inventoryLog', 'issues',
+      // 'minutes', 'notifications'
+      async getAll(collectionName) {
+        if (!FIREBASE_CONFIGURED) return [];
+        const snap = await getDocs(collection(db, collectionName));
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      },
+      async getWhere(collectionName, field, op, value) {
+        if (!FIREBASE_CONFIGURED) return [];
+        const q = query(collection(db, collectionName), where(field, op, value));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      },
+      async getOne(collectionName, id) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const snap = await getDoc(doc(db, collectionName, id));
+        return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+      },
+      async add(collectionName, data) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const ref = await addDoc(collection(db, collectionName), data);
+        return ref.id;
+      },
+      async set(collectionName, id, data) {
+        if (!FIREBASE_CONFIGURED) return;
+        await setDoc(doc(db, collectionName, id), data);
+      },
+      async update(collectionName, id, data) {
+        if (!FIREBASE_CONFIGURED) return;
+        await updateDoc(doc(db, collectionName, id), data);
+      },
+      async remove(collectionName, id) {
+        if (!FIREBASE_CONFIGURED) return;
+        await deleteDoc(doc(db, collectionName, id));
+      },
+      // Live updates — calls cb(array) every time the collection changes.
+      // Returns an unsubscribe function.
+      watch(collectionName, cb) {
+        if (!FIREBASE_CONFIGURED) return () => {};
+        return onSnapshot(collection(db, collectionName), snap => {
+          cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+      },
+    };
+
+    // Let the rest of the app (which loads after this module) know the
+    // data layer is ready, regardless of whether Firebase is configured.
+    window.dispatchEvent(new CustomEvent('acedb-ready', { detail: { live: FIREBASE_CONFIGURED } }));
+  </script>
+</head>
+<body>
+
+  <!-- 🔥 Firebase connection status banner (Milestone 7) -->
+  <div id="acedb-status-banner" style="display:none;position:fixed;bottom:12px;right:12px;z-index:9999;font-family:monospace;font-size:11px;padding:6px 12px;border-radius:8px;background:rgba(245,158,11,0.12);color:rgb(245,158,11);border:1px solid rgba(245,158,11,0.3);">
+    ⚠ Firebase not configured — running on demo data
+  </div>
+
+  <!-- ============================================================
+       NAVBAR — Milestone 1.2
+       Fixed, appears on all pages
+  ============================================================ -->
+  <nav class="navbar" id="navbar">
+    <div class="navbar-inner">
+
+      <!-- Logo -->
+      <a class="navbar-logo" onclick="navigate('home')">
+        <div class="navbar-logo-mark">ACE</div>
+        <div class="navbar-logo-text">
+          <span class="navbar-logo-name">ACE Club</span>
+          <span class="navbar-logo-tagline">AI · Cyber · Embedded</span>
+        </div>
+      </a>
+
+      <!-- Desktop Nav Links -->
+      <ul class="navbar-links">
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('about')">About</button>
+        </li>
+        <li style="position:relative;">
+          <button class="navbar-link navbar-link-wings" id="wingsBtn" onclick="toggleWingsDropdown()">
+            Wings
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <!-- Wings Dropdown -->
+            <div class="wings-dropdown" id="wingsDropdown">
+              <div class="wings-dropdown-item" onclick="scrollToSection('wings')">
+                <div class="wings-dropdown-dot" style="background: var(--ai-cyan);"></div>
+                <div>
+                  <div class="wings-dropdown-label">AI Wing</div>
+                  <div class="wings-dropdown-sub">Machine Learning & Data</div>
+                </div>
+              </div>
+              <div class="wings-dropdown-item" onclick="scrollToSection('wings')">
+                <div class="wings-dropdown-dot" style="background: var(--cyber-purple);"></div>
+                <div>
+                  <div class="wings-dropdown-label">Cybersecurity</div>
+                  <div class="wings-dropdown-sub">Network & System Security</div>
+                </div>
+              </div>
+              <div class="wings-dropdown-item" onclick="scrollToSection('wings')">
+                <div class="wings-dropdown-dot" style="background: var(--embedded-green);"></div>
+                <div>
+                  <div class="wings-dropdown-label">Embedded Systems</div>
+                  <div class="wings-dropdown-sub">IoT & Hardware</div>
+                </div>
+              </div>
+            </div>
+          </button>
+        </li>
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('team')">Team</button>
+        </li>
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('events')">Events</button>
+        </li>
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('resources')">Resources</button>
+        </li>
+      </ul>
+
+      <!-- Right Actions -->
+      <div class="navbar-right">
+        <button class="navbar-login-btn" onclick="navigate('login')">Member Login</button>
+        <button class="navbar-join-btn" onclick="navigate('register')">
+          Join ACE
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 7H12M8 3L12 7L8 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <!-- Notification Bell (Milestone 6) -->
+        <div class="navbar-bell-wrap" id="navbar-bell-wrap" style="display:none;">
+          <button class="navbar-bell-btn" id="navbar-bell-btn" onclick="toggleNotifPanel(event)" aria-label="Notifications">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M18 8C18 6.4 17.4 4.9 16.2 3.8C15.1 2.6 13.6 2 12 2C10.4 2 8.9 2.6 7.8 3.8C6.6 4.9 6 6.4 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M13.7 21C13.5 21.3 13.3 21.6 13 21.7C12.7 21.9 12.4 22 12 22C11.6 22 11.3 21.9 11 21.7C10.7 21.6 10.5 21.3 10.3 21" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="navbar-bell-badge" id="navbar-bell-badge" style="display:none;">0</span>
+          </button>
+          <div class="navbar-notif-panel" id="navbar-notif-panel">
+            <div class="navbar-notif-header">
+              <span>Notifications</span>
+              <span class="navbar-notif-markall" onclick="markAllNotificationsRead()">Mark all read</span>
+            </div>
+            <div class="navbar-notif-list" id="navbar-notif-list"></div>
+          </div>
+        </div>
+        <!-- Hamburger -->
+        <button class="navbar-hamburger" id="hamburger" onclick="toggleMobileMenu()" aria-label="Toggle menu">
+          <div class="hamburger-line"></div>
+          <div class="hamburger-line"></div>
+          <div class="hamburger-line"></div>
+        </button>
+      </div>
+
+    </div>
+  </nav>
+
+  <!-- Mobile Menu Drawer -->
+  <div class="mobile-menu" id="mobileMenu">
+    <button class="mobile-nav-link" onclick="scrollToSection('about'); closeMobileMenu()">About ACE</button>
+    <button class="mobile-nav-link" onclick="scrollToSection('vision'); closeMobileMenu()">Vision & Mission</button>
+    <button class="mobile-nav-link" onclick="scrollToSection('team'); closeMobileMenu()">Core Team</button>
+    <button class="mobile-nav-link" onclick="scrollToSection('events'); closeMobileMenu()">Events</button>
+
+    <div class="mobile-menu-wings">
+      <div class="mobile-menu-wings-label">Wings</div>
+      <button class="mobile-nav-link" onclick="scrollToSection('wings'); closeMobileMenu()">
+        <span style="color: var(--ai-cyan);">⚡</span> AI Wing
+      </button>
+      <button class="mobile-nav-link" onclick="scrollToSection('wings'); closeMobileMenu()">
+        <span style="color: var(--cyber-purple);">🔐</span> Cybersecurity
+      </button>
+      <button class="mobile-nav-link" onclick="scrollToSection('wings'); closeMobileMenu()">
+        <span style="color: var(--embedded-green);">🔧</span> Embedded Systems
+      </button>
+    </div>
+
+    <div class="mobile-menu-actions">
+      <button class="btn btn-ghost w-full" onclick="navigate('login'); closeMobileMenu()">Member Login</button>
+      <button class="navbar-join-btn" style="width:100%; justify-content:center; padding: var(--space-3);" onclick="navigate('register'); closeMobileMenu()">
+        Join ACE →
+      </button>
+    </div>
+  </div>
+  <div>
+    <div class="navbar-spacer"></div>
+    <div class="login-page">
+
+      <!-- Left panel: branding -->
+      <div class="login-left">
+        <div class="login-left-inner">
+          <div class="login-brand" onclick="navigate('home')" style="cursor:pointer;">
+            <div class="navbar-logo-mark" style="width:48px;height:48px;font-size:1rem;">ACE</div>
+            <div>
+              <div class="navbar-logo-name" style="font-size:var(--text-xl);">ACE Club</div>
+              <div class="navbar-logo-tagline">AI · Cyber · Embedded</div>
+            </div>
+          </div>
+
+          <div class="login-left-content">
+            <h2 class="login-left-title">Member Portal</h2>
+            <p class="login-left-sub">Sign in to access your dashboard, tasks, resources, and club tools.</p>
+
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Right panel: form -->
+      <div class="login-right">
+        <div class="login-form-wrap">
+          <div class="login-form-header">
+            <h2 class="login-form-title">Sign In</h2>
+            <p class="login-form-sub">Enter your credentials to access the portal.</p>
+          </div>
+
+          <div class="login-error-banner hidden" id="login-error">
+            <span>⚠</span> <span id="login-error-msg">Invalid email or password.</span>
+          </div>
+
+          <div class="login-form">
+            <div class="form-group">
+              <label class="form-label">Email Address</label>
+              <input class="form-input" id="login-email" type="email" placeholder="you@ace.edu" autocomplete="email"/>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" style="display:flex;justify-content:space-between;">
+                <span>Password</span>
+                <span class="login-forgot" onclick="showForgot()">Forgot password?</span>
+              </label>
+              <div class="login-pw-wrap">
+                <input class="form-input" id="login-pw" type="password" placeholder="Enter your password" autocomplete="current-password" style="padding-right:3rem;"/>
+                <button class="login-pw-toggle" onclick="togglePassword()" id="pw-toggle" title="Show/hide password">
+                  <svg id="pw-eye-show" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg id="pw-eye-hide" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="login-remember">
+              <label style="display:flex;align-items:center;gap:var(--space-2);cursor:pointer;font-size:var(--text-sm);color:var(--text-secondary);">
+                <input type="checkbox" id="login-remember" style="accent-color:var(--ai-cyan);width:14px;height:14px;"/>
+                Remember me
+              </label>
+            </div>
+
+            <button class="btn btn-primary w-full" id="login-btn" style="justify-content:center;" onclick="handleLogin()">
+              Sign In
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7H11M7.5 3.5L11 7L7.5 10.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+
+            <div class="login-divider"><span>or</span></div>
+
+            <button class="btn btn-ghost w-full" style="justify-content:center;" onclick="navigate('register')">
+              Apply to Join ACE →
+            </button>
+          </div>
+
+          <div class="login-back">
+            <button class="login-back-link" onclick="navigate('home')">← Back to Home</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Forgot password modal -->
+      <div class="modal-overlay hidden" id="forgot-modal" onclick="hideForgot()">
+        <div class="modal-box" onclick="event.stopPropagation()">
+          <h3 class="modal-title">Reset Password</h3>
+          <p class="modal-sub">Enter your registered email. Your Wing Lead or Student Lead will reset your access.</p>
+          <div class="form-group" style="margin:var(--space-5) 0;">
+            <label class="form-label">Email Address</label>
+            <input class="form-input" id="forgot-email" type="email" placeholder="you@ace.edu"/>
+          </div>
+          <div style="display:flex;gap:var(--space-3);">
+            <button class="btn btn-ghost" onclick="hideForgot()">Cancel</button>
+            <button class="btn btn-primary" onclick="submitForgot()">Send Request</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+
+</body>
+</html>

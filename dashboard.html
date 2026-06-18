@@ -1,0 +1,1622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard — ACE Club</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+
+  <!-- ============================================================
+       🔥 FIREBASE INTEGRATION — Milestone 7
+       ============================================================
+       1. Go to https://console.firebase.google.com → Create a project
+       2. Project Settings → General → "Your apps" → Add a Web app (</>)
+       3. Copy the config object Firebase gives you
+       4. Paste it below, replacing the placeholder values
+       5. In the Firebase Console, enable:
+            - Authentication → Sign-in method → Email/Password
+            - Firestore Database → Create database → Start in test mode
+       That's it — no server, no build step. Just open this file.
+  ============================================================ -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+      signOut, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import {
+      getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc,
+      updateDoc, deleteDoc, query, where, onSnapshot, orderBy
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // 🔥 PASTE YOUR FIREBASE CONFIG HERE — replace every value below
+    const firebaseConfig = {
+  apiKey: "AIzaSyDPa9aTUXr53jf9aNY4NBHzyowpuMHoKT4",
+  authDomain: "ace-club-portal-ebbaf.firebaseapp.com",
+  projectId: "ace-club-portal-ebbaf",
+  storageBucket: "ace-club-portal-ebbaf.firebasestorage.app",
+  messagingSenderId: "790077782490",
+  appId: "1:790077782490:web:001f6a4b3cd26025f8a8e3"
+};
+
+    // Detect whether real config has been pasted in. While it's still the
+    // placeholder, the app runs fully offline on in-memory demo data —
+    // nothing breaks, nothing tries to reach the network.
+    const FIREBASE_CONFIGURED = firebaseConfig.apiKey !== "YOUR_API_KEY";
+
+    let app=null, auth=null, db=null;
+    if (FIREBASE_CONFIGURED) {
+      app  = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db   = getFirestore(app);
+    } else {
+      console.warn("[Firebase] Not configured yet — running on in-memory demo data. See the 🔥 PASTE YOUR FIREBASE CONFIG HERE comment in index.html.");
+    }
+
+    // ── Thin data-access layer exposed to the rest of the app (window.ACEDB) ──
+    // Every method here mirrors a plain in-memory operation, so each store
+    // can be migrated one at a time without rewriting its calling code.
+    window.ACEDB = {
+      isLive: FIREBASE_CONFIGURED,
+
+      // Auth
+      async login(email, password) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        return cred.user;
+      },
+      async register(email, password) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        return cred.user;
+      },
+      async logout() {
+        if (!FIREBASE_CONFIGURED) return;
+        await signOut(auth);
+      },
+      onAuthChange(cb) {
+        if (!FIREBASE_CONFIGURED) return () => {};
+        return onAuthStateChanged(auth, cb);
+      },
+
+      // Firestore — generic collection helpers
+      // collectionName examples: 'members', 'users', 'tasks', 'wingTasks',
+      // 'announcements', 'events', 'inventory', 'inventoryLog', 'issues',
+      // 'minutes', 'notifications'
+      async getAll(collectionName) {
+        if (!FIREBASE_CONFIGURED) return [];
+        const snap = await getDocs(collection(db, collectionName));
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      },
+      async getWhere(collectionName, field, op, value) {
+        if (!FIREBASE_CONFIGURED) return [];
+        const q = query(collection(db, collectionName), where(field, op, value));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      },
+      async getOne(collectionName, id) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const snap = await getDoc(doc(db, collectionName, id));
+        return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+      },
+      async add(collectionName, data) {
+        if (!FIREBASE_CONFIGURED) return null;
+        const ref = await addDoc(collection(db, collectionName), data);
+        return ref.id;
+      },
+      async set(collectionName, id, data) {
+        if (!FIREBASE_CONFIGURED) return;
+        await setDoc(doc(db, collectionName, id), data);
+      },
+      async update(collectionName, id, data) {
+        if (!FIREBASE_CONFIGURED) return;
+        await updateDoc(doc(db, collectionName, id), data);
+      },
+      async remove(collectionName, id) {
+        if (!FIREBASE_CONFIGURED) return;
+        await deleteDoc(doc(db, collectionName, id));
+      },
+      // Live updates — calls cb(array) every time the collection changes.
+      // Returns an unsubscribe function.
+      watch(collectionName, cb) {
+        if (!FIREBASE_CONFIGURED) return () => {};
+        return onSnapshot(collection(db, collectionName), snap => {
+          cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+      },
+    };
+
+    // Let the rest of the app (which loads after this module) know the
+    // data layer is ready, regardless of whether Firebase is configured.
+    window.dispatchEvent(new CustomEvent('acedb-ready', { detail: { live: FIREBASE_CONFIGURED } }));
+  </script>
+</head>
+<body>
+
+  <!-- 🔥 Firebase connection status banner (Milestone 7) -->
+  <div id="acedb-status-banner" style="display:none;position:fixed;bottom:12px;right:12px;z-index:9999;font-family:monospace;font-size:11px;padding:6px 12px;border-radius:8px;background:rgba(245,158,11,0.12);color:rgb(245,158,11);border:1px solid rgba(245,158,11,0.3);">
+    ⚠ Firebase not configured — running on demo data
+  </div>
+
+  <!-- ============================================================
+       NAVBAR — Milestone 1.2
+       Fixed, appears on all pages
+  ============================================================ -->
+  <nav class="navbar" id="navbar">
+    <div class="navbar-inner">
+
+      <!-- Logo -->
+      <a class="navbar-logo" onclick="navigate('home')">
+        <div class="navbar-logo-mark">ACE</div>
+        <div class="navbar-logo-text">
+          <span class="navbar-logo-name">ACE Club</span>
+          <span class="navbar-logo-tagline">AI · Cyber · Embedded</span>
+        </div>
+      </a>
+
+      <!-- Desktop Nav Links -->
+      <ul class="navbar-links">
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('about')">About</button>
+        </li>
+        <li style="position:relative;">
+          <button class="navbar-link navbar-link-wings" id="wingsBtn" onclick="toggleWingsDropdown()">
+            Wings
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 4L6 8L10 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <!-- Wings Dropdown -->
+            <div class="wings-dropdown" id="wingsDropdown">
+              <div class="wings-dropdown-item" onclick="scrollToSection('wings')">
+                <div class="wings-dropdown-dot" style="background: var(--ai-cyan);"></div>
+                <div>
+                  <div class="wings-dropdown-label">AI Wing</div>
+                  <div class="wings-dropdown-sub">Machine Learning & Data</div>
+                </div>
+              </div>
+              <div class="wings-dropdown-item" onclick="scrollToSection('wings')">
+                <div class="wings-dropdown-dot" style="background: var(--cyber-purple);"></div>
+                <div>
+                  <div class="wings-dropdown-label">Cybersecurity</div>
+                  <div class="wings-dropdown-sub">Network & System Security</div>
+                </div>
+              </div>
+              <div class="wings-dropdown-item" onclick="scrollToSection('wings')">
+                <div class="wings-dropdown-dot" style="background: var(--embedded-green);"></div>
+                <div>
+                  <div class="wings-dropdown-label">Embedded Systems</div>
+                  <div class="wings-dropdown-sub">IoT & Hardware</div>
+                </div>
+              </div>
+            </div>
+          </button>
+        </li>
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('team')">Team</button>
+        </li>
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('events')">Events</button>
+        </li>
+        <li>
+          <button class="navbar-link" onclick="scrollToSection('resources')">Resources</button>
+        </li>
+      </ul>
+
+      <!-- Right Actions -->
+      <div class="navbar-right">
+        <button class="navbar-login-btn" onclick="navigate('login')">Member Login</button>
+        <button class="navbar-join-btn" onclick="navigate('register')">
+          Join ACE
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 7H12M8 3L12 7L8 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <!-- Notification Bell (Milestone 6) -->
+        <div class="navbar-bell-wrap" id="navbar-bell-wrap" style="display:none;">
+          <button class="navbar-bell-btn" id="navbar-bell-btn" onclick="toggleNotifPanel(event)" aria-label="Notifications">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M18 8C18 6.4 17.4 4.9 16.2 3.8C15.1 2.6 13.6 2 12 2C10.4 2 8.9 2.6 7.8 3.8C6.6 4.9 6 6.4 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M13.7 21C13.5 21.3 13.3 21.6 13 21.7C12.7 21.9 12.4 22 12 22C11.6 22 11.3 21.9 11 21.7C10.7 21.6 10.5 21.3 10.3 21" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="navbar-bell-badge" id="navbar-bell-badge" style="display:none;">0</span>
+          </button>
+          <div class="navbar-notif-panel" id="navbar-notif-panel">
+            <div class="navbar-notif-header">
+              <span>Notifications</span>
+              <span class="navbar-notif-markall" onclick="markAllNotificationsRead()">Mark all read</span>
+            </div>
+            <div class="navbar-notif-list" id="navbar-notif-list"></div>
+          </div>
+        </div>
+        <!-- Hamburger -->
+        <button class="navbar-hamburger" id="hamburger" onclick="toggleMobileMenu()" aria-label="Toggle menu">
+          <div class="hamburger-line"></div>
+          <div class="hamburger-line"></div>
+          <div class="hamburger-line"></div>
+        </button>
+      </div>
+
+    </div>
+  </nav>
+
+  <!-- Mobile Menu Drawer -->
+  <div class="mobile-menu" id="mobileMenu">
+    <button class="mobile-nav-link" onclick="scrollToSection('about'); closeMobileMenu()">About ACE</button>
+    <button class="mobile-nav-link" onclick="scrollToSection('vision'); closeMobileMenu()">Vision & Mission</button>
+    <button class="mobile-nav-link" onclick="scrollToSection('team'); closeMobileMenu()">Core Team</button>
+    <button class="mobile-nav-link" onclick="scrollToSection('events'); closeMobileMenu()">Events</button>
+
+    <div class="mobile-menu-wings">
+      <div class="mobile-menu-wings-label">Wings</div>
+      <button class="mobile-nav-link" onclick="scrollToSection('wings'); closeMobileMenu()">
+        <span style="color: var(--ai-cyan);">⚡</span> AI Wing
+      </button>
+      <button class="mobile-nav-link" onclick="scrollToSection('wings'); closeMobileMenu()">
+        <span style="color: var(--cyber-purple);">🔐</span> Cybersecurity
+      </button>
+      <button class="mobile-nav-link" onclick="scrollToSection('wings'); closeMobileMenu()">
+        <span style="color: var(--embedded-green);">🔧</span> Embedded Systems
+      </button>
+    </div>
+
+    <div class="mobile-menu-actions">
+      <button class="btn btn-ghost w-full" onclick="navigate('login'); closeMobileMenu()">Member Login</button>
+      <button class="navbar-join-btn" style="width:100%; justify-content:center; padding: var(--space-3);" onclick="navigate('register'); closeMobileMenu()">
+        Join ACE →
+      </button>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       ROUTER ROOT — JS will show/hide pages based on hash
+       (Milestone 9: home/login/register now live in their own files)
+  ============================================================ -->
+  <div data-page="design-system" class="page-active">
+    <div class="ds-preview">
+
+      <!-- Header -->
+      <div style="margin-bottom: var(--space-16);">
+        <div class="badge badge-neutral" style="margin-bottom: var(--space-4);">
+          Milestone 1.1 Complete
+        </div>
+        <h1 class="font-display" style="font-size: var(--text-5xl); font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; margin-bottom: var(--space-4);">
+          ACE Club<br/>
+          <span style="color: var(--ai-cyan);">Design System</span>
+        </h1>
+        <p style="color: var(--text-secondary); font-size: var(--text-lg); max-width: 520px; line-height: 1.7;">
+          Global tokens, components, and routing skeleton ready.
+          Every milestone builds on this foundation.
+        </p>
+        <div style="display: flex; gap: var(--space-3); margin-top: var(--space-6);">
+          <button class="btn btn-primary btn-lg" onclick="navigate('home')">
+            → View Navbar Live (M1.2)
+          </button>
+          <button class="btn btn-ghost" onclick="navigate('login')">
+            Dashboard Preview
+          </button>
+        </div>
+      </div>
+
+      <div class="divider-gradient"></div>
+
+      <!-- Color Palette -->
+      <div class="ds-section" style="margin-top: var(--space-12);">
+        <div class="ds-section-title">Color Palette</div>
+        <div class="ds-swatches">
+          <div class="ds-swatch">
+            <div class="ds-swatch-color" style="background:#0A0F1E;"></div>
+            <div class="ds-swatch-label">BG Primary<br/>#0A0F1E</div>
+          </div>
+          <div class="ds-swatch">
+            <div class="ds-swatch-color" style="background:#111827;"></div>
+            <div class="ds-swatch-label">BG Card<br/>#111827</div>
+          </div>
+          <div class="ds-swatch">
+            <div class="ds-swatch-color" style="background:#00D4FF; border-color:#00D4FF;"></div>
+            <div class="ds-swatch-label" style="color:var(--ai-cyan);">AI Cyan<br/>#00D4FF</div>
+          </div>
+          <div class="ds-swatch">
+            <div class="ds-swatch-color" style="background:#8B5CF6; border-color:#8B5CF6;"></div>
+            <div class="ds-swatch-label" style="color:var(--cyber-purple);">Cyber Purple<br/>#8B5CF6</div>
+          </div>
+          <div class="ds-swatch">
+            <div class="ds-swatch-color" style="background:#39FF14; border-color:#39FF14;"></div>
+            <div class="ds-swatch-label" style="color:var(--embedded-green);">Embedded Green<br/>#39FF14</div>
+          </div>
+          <div class="ds-swatch">
+            <div class="ds-swatch-color" style="background:#E8EDF5;"></div>
+            <div class="ds-swatch-label">Text Primary<br/>#E8EDF5</div>
+          </div>
+          <div class="ds-swatch">
+            <div class="ds-swatch-color" style="background:#8A9BB5;"></div>
+            <div class="ds-swatch-label">Text Secondary<br/>#8A9BB5</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Typography -->
+      <div class="ds-section">
+        <div class="ds-section-title">Typography Scale — Space Grotesk + Inter</div>
+        <div class="ds-type-scale">
+          <div class="font-display" style="font-size: var(--text-5xl); font-weight: 700; letter-spacing: -0.03em; line-height:1.1;">Display / Hero</div>
+          <div class="font-display" style="font-size: var(--text-3xl); font-weight: 700; letter-spacing: -0.02em;">Section Title</div>
+          <div class="font-display" style="font-size: var(--text-xl); font-weight: 600;">Card Heading</div>
+          <div style="font-size: var(--text-base); color: var(--text-secondary); line-height: 1.7;">Body text — Inter Regular. Used for descriptions, paragraphs, and supporting content throughout the interface.</div>
+          <div class="font-mono" style="font-size: var(--text-sm); color: var(--ai-cyan);">MONO — Labels, badges, member IDs, code snippets</div>
+        </div>
+      </div>
+
+      <!-- Badges -->
+      <div class="ds-section">
+        <div class="ds-section-title">Wing Badges</div>
+        <div class="ds-component-row">
+          <span class="badge badge-ai">⚡ AI Wing</span>
+          <span class="badge badge-cyber">🔐 Cybersecurity</span>
+          <span class="badge badge-embedded">🔧 Embedded Systems</span>
+          <span class="badge badge-neutral">General</span>
+        </div>
+      </div>
+
+      <!-- Buttons -->
+      <div class="ds-section">
+        <div class="ds-section-title">Buttons</div>
+        <div class="ds-component-row">
+          <button class="btn btn-primary">Join ACE</button>
+          <button class="btn btn-ghost">Learn More</button>
+          <button class="btn btn-outline-ai">AI Wing</button>
+          <button class="btn btn-outline-cyber">Cyber Wing</button>
+          <button class="btn btn-primary btn-sm">Small</button>
+          <button class="btn btn-primary btn-lg">Large CTA</button>
+        </div>
+      </div>
+
+      <!-- Cards -->
+      <div class="ds-section">
+        <div class="ds-section-title">Cards</div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4);">
+          <div class="card card-ai">
+            <span class="badge badge-ai" style="margin-bottom: var(--space-3);">⚡ AI Wing</span>
+            <div class="font-display" style="font-weight: 600; margin-bottom: var(--space-2);">Machine Learning</div>
+            <div style="font-size: var(--text-sm); color: var(--text-secondary);">Hover to see AI accent glow effect.</div>
+          </div>
+          <div class="card card-cyber">
+            <span class="badge badge-cyber" style="margin-bottom: var(--space-3);">🔐 Cyber Wing</span>
+            <div class="font-display" style="font-weight: 600; margin-bottom: var(--space-2);">Network Security</div>
+            <div style="font-size: var(--text-sm); color: var(--text-secondary);">Hover to see Cyber accent glow effect.</div>
+          </div>
+          <div class="card card-embedded">
+            <span class="badge badge-embedded" style="margin-bottom: var(--space-3);">🔧 Embedded</span>
+            <div class="font-display" style="font-weight: 600; margin-bottom: var(--space-2);">IoT Systems</div>
+            <div style="font-size: var(--text-sm); color: var(--text-secondary);">Hover to see Embedded accent glow effect.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status Pills -->
+      <div class="ds-section">
+        <div class="ds-section-title">Status Indicators</div>
+        <div class="ds-component-row">
+          <span class="status-pill status-active">Active</span>
+          <span class="status-pill status-inactive">Inactive</span>
+          <span class="status-pill status-pending">Pending</span>
+        </div>
+      </div>
+
+      <!-- Stat Cards -->
+      <div class="ds-section">
+        <div class="ds-section-title">Stat Cards (Dashboard)</div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4);">
+          <div class="stat-card">
+            <div class="stat-value" style="color: var(--ai-cyan);">0</div>
+            <div class="stat-label">Total Members</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color: var(--success);">0</div>
+            <div class="stat-label">Active Members</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color: var(--warning);">0</div>
+            <div class="stat-label">Pending Approvals</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color: var(--cyber-purple);">0</div>
+            <div class="stat-label">Open Tasks</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div class="ds-section">
+        <div class="ds-section-title">Dividers</div>
+        <div class="divider"></div>
+        <br/>
+        <div class="divider-gradient"></div>
+      </div>
+
+      <!-- Form Elements -->
+      <div class="ds-section">
+        <div class="ds-section-title">Form Elements</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); max-width: 600px;">
+          <div class="form-group">
+            <label class="form-label">Full Name</label>
+            <input class="form-input" type="text" placeholder="Enter your name"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Wing</label>
+            <select class="form-select">
+              <option>Select Wing</option>
+              <option>AI</option>
+              <option>Cybersecurity</option>
+              <option>Embedded Systems</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Routing Map -->
+      <div class="ds-section">
+        <div class="ds-section-title">Route Map</div>
+        <div class="card" style="font-family: var(--font-mono); font-size: var(--text-sm); line-height: 2;">
+          <div style="color: var(--text-muted);"># Public Routes</div>
+          <div><span style="color: var(--ai-cyan);">/#home</span> <span style="color: var(--text-secondary);">→ Public Homepage</span></div>
+          <div><span style="color: var(--ai-cyan);">/#register</span> <span style="color: var(--text-secondary);">→ Member Registration</span></div>
+          <br/>
+          <div style="color: var(--text-muted);"># Protected Routes</div>
+          <div><span style="color: var(--cyber-purple);">/#login</span> <span style="color: var(--text-secondary);">→ Login</span></div>
+          <div><span style="color: var(--cyber-purple);">/#member</span> <span style="color: var(--text-secondary);">→ Member Dashboard</span></div>
+          <div><span style="color: var(--cyber-purple);">/#winglead</span> <span style="color: var(--text-secondary);">→ Wing Lead Dashboard</span></div>
+          <div><span style="color: var(--cyber-purple);">/#studentlead</span> <span style="color: var(--text-secondary);">→ Student Lead Dashboard</span></div>
+        </div>
+      </div>
+
+      <!-- M1.1 Status -->
+      <div class="card" style="border-color: rgba(0,212,255,0.25); background: var(--ai-cyan-dim); margin-top: var(--space-8);">
+        <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3);">
+          <span style="font-size: 1.5rem;">✅</span>
+          <span class="font-display" style="font-weight: 700; font-size: var(--text-lg);">Milestone 1.1 — Complete</span>
+        </div>
+        <div style="font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.8;">
+          ✓ Project structure & file layout defined<br/>
+          ✓ Design tokens (colors, typography, spacing, radius, shadows)<br/>
+          ✓ Global reset & base styles<br/>
+          ✓ Component library (badges, buttons, cards, forms, tables, toasts, stat cards, avatars)<br/>
+          ✓ SPA routing skeleton (hash-based navigation)<br/>
+          ✓ Role-based page stubs (public, member, wing lead, student lead)<br/>
+          ✓ Responsive breakpoints (mobile, tablet, desktop)<br/>
+          ✓ Accessibility baseline (focus-visible, reduced-motion)
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div data-page="member">
+    <div class="navbar-spacer"></div>
+    <div class="dash-layout">
+
+      <!-- Sidebar -->
+      <aside class="dash-sidebar" id="member-sidebar">
+        <div class="dash-sidebar-header">
+          <div class="dash-sidebar-avatar" id="member-sb-avatar">R</div>
+          <div>
+            <div class="dash-sidebar-name" id="member-sb-name">Member</div>
+            <div class="dash-sidebar-role font-mono">👤 Member</div>
+          </div>
+        </div>
+        <nav class="dash-sidebar-nav">
+          <div class="dash-nav-item active" onclick="memberTab('overview')">📊 Overview</div>
+          <div class="dash-nav-item" onclick="memberTab('tasks')">✅ My Tasks</div>
+          <div class="dash-nav-item" onclick="memberTab('events')">📅 Events</div>
+          <div class="dash-nav-item" onclick="memberTab('resources')">📚 Resources</div>
+        </nav>
+        <div class="dash-sidebar-footer">
+          <button class="btn btn-ghost w-full" style="justify-content:center;font-size:var(--text-sm);" onclick="handleLogout()">🚪 Sign Out</button>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="dash-main">
+
+        <!-- OVERVIEW TAB -->
+        <div class="dash-tab active" id="member-tab-overview">
+          <div class="dash-header">
+            <div>
+              <div class="section-eyebrow" style="text-align:left;">Dashboard</div>
+              <h2 class="dash-title">Welcome back, <span id="member-welcome-name">—</span> 👋</h2>
+            </div>
+            <div class="dash-header-meta font-mono" id="member-header-id"></div>
+          </div>
+
+          <!-- Stat cards -->
+          <div class="dash-stats-grid">
+            <div class="stat-card" style="border-color:rgba(0,212,255,0.15);">
+              <div class="stat-value" style="color:var(--ai-cyan);" id="mem-stat-tasks">0</div>
+              <div class="stat-label">Tasks Assigned</div>
+            </div>
+            <div class="stat-card" style="border-color:rgba(16,185,129,0.15);">
+              <div class="stat-value" style="color:var(--success);" id="mem-stat-done">0</div>
+              <div class="stat-label">Tasks Completed</div>
+            </div>
+            <div class="stat-card" style="border-color:rgba(245,158,11,0.15);">
+              <div class="stat-value" style="color:var(--warning);" id="mem-stat-pending">0</div>
+              <div class="stat-label">Tasks Pending</div>
+            </div>
+            <div class="stat-card" style="border-color:rgba(139,92,246,0.15);">
+              <div class="stat-value" style="color:var(--cyber-purple);" id="mem-stat-events">3</div>
+              <div class="stat-label">Upcoming Events</div>
+            </div>
+          </div>
+
+          <!-- Recent tasks -->
+          <div class="dash-section-title">Recent Tasks</div>
+          <div class="dash-card" id="member-recent-tasks">
+            <div class="dash-empty">No tasks assigned yet.</div>
+          </div>
+
+          <!-- Wing info -->
+          <div class="dash-section-title">Your Wing</div>
+          <div class="dash-card member-wing-card" id="member-wing-info">
+            <div class="member-wing-icon" id="member-wing-icon">⚡</div>
+            <div>
+              <div class="member-wing-name" id="member-wing-name">AI Wing</div>
+              <div class="member-wing-sub">Your enrolled technical wing</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TASKS TAB -->
+        <div class="dash-tab" id="member-tab-tasks">
+          <div class="dash-header">
+            <h2 class="dash-title">My Tasks</h2>
+          </div>
+          <div class="task-filters">
+            <button class="task-filter-btn active" onclick="filterMemberTasks('all', this)">All</button>
+            <button class="task-filter-btn" onclick="filterMemberTasks('Research', this)">Research</button>
+            <button class="task-filter-btn" onclick="filterMemberTasks('Event Duty', this)">Event Duties</button>
+            <button class="task-filter-btn" onclick="filterMemberTasks('Project', this)">Projects</button>
+          </div>
+          <div class="dash-card" id="member-all-tasks">
+            <div class="dash-empty">No tasks assigned yet.</div>
+          </div>
+        </div>
+
+        <!-- EVENTS TAB -->
+        <div class="dash-tab" id="member-tab-events">
+          <div class="dash-header">
+            <h2 class="dash-title">Upcoming Events</h2>
+          </div>
+          <div class="events-list-dash">
+            <div class="dash-event-card">
+              <div class="dash-event-date"><div class="dash-event-day">28</div><div class="dash-event-month font-mono">JUN</div></div>
+              <div class="dash-event-info">
+                <span class="badge badge-cyber" style="font-size:10px;">🔐 Cyber</span>
+                <div class="dash-event-title">Intro to Ethical Hacking</div>
+                <div class="dash-event-meta">📍 Lab 302 &nbsp;·&nbsp; ⏱ 2 hrs</div>
+              </div>
+            </div>
+            <div class="dash-event-card">
+              <div class="dash-event-date"><div class="dash-event-day">05</div><div class="dash-event-month font-mono">JUL</div></div>
+              <div class="dash-event-info">
+                <span class="badge badge-embedded" style="font-size:10px;">🔧 Embedded</span>
+                <div class="dash-event-title">ESP32 IoT Bootcamp</div>
+                <div class="dash-event-meta">📍 Hardware Lab &nbsp;·&nbsp; ⏱ 3 hrs</div>
+              </div>
+            </div>
+            <div class="dash-event-card">
+              <div class="dash-event-date"><div class="dash-event-day">20</div><div class="dash-event-month font-mono">JUL</div></div>
+              <div class="dash-event-info">
+                <span class="badge badge-ai" style="font-size:10px;">⚡ All Wings</span>
+                <div class="dash-event-title">ACE HackFest 2025</div>
+                <div class="dash-event-meta">📍 Main Auditorium &nbsp;·&nbsp; ⏱ 24 hrs</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RESOURCES TAB -->
+        <div class="dash-tab" id="member-tab-resources">
+          <div class="dash-header">
+            <h2 class="dash-title">Resources</h2>
+          </div>
+          <div class="resources-grid">
+            <a class="resource-card" href="#" target="_blank">
+              <div class="resource-icon" style="background:var(--ai-cyan-dim);color:var(--ai-cyan);">📘</div>
+              <div class="resource-title">Python for ML — Roadmap</div>
+              <div class="resource-tag badge badge-ai">AI Wing</div>
+            </a>
+            <a class="resource-card" href="#" target="_blank">
+              <div class="resource-icon" style="background:var(--cyber-purple-dim);color:var(--cyber-purple);">🔐</div>
+              <div class="resource-title">CTF Beginner Guide</div>
+              <div class="resource-tag badge badge-cyber">Cyber Wing</div>
+            </a>
+            <a class="resource-card" href="#" target="_blank">
+              <div class="resource-icon" style="background:var(--embedded-green-dim);color:var(--embedded-green);">🔧</div>
+              <div class="resource-title">ESP32 Getting Started</div>
+              <div class="resource-tag badge badge-embedded">Embedded Wing</div>
+            </a>
+            <a class="resource-card" href="#" target="_blank">
+              <div class="resource-icon" style="background:rgba(245,158,11,0.1);color:#F59E0B;">📄</div>
+              <div class="resource-title">ACE Code of Conduct</div>
+              <div class="resource-tag badge badge-neutral">General</div>
+            </a>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       WING LEAD DASHBOARD — Milestone 4 (M4.1–M4.9)
+  ============================================================ -->
+  <div data-page="winglead">
+    <div class="navbar-spacer"></div>
+    <div class="dash-layout">
+
+      <!-- Sidebar -->
+      <aside class="dash-sidebar" id="winglead-sidebar">
+        <div class="dash-sidebar-header">
+          <div class="dash-sidebar-avatar" id="wl-sb-avatar">WL</div>
+          <div>
+            <div class="dash-sidebar-name" id="wl-sb-name">Wing Lead</div>
+            <div class="dash-sidebar-role font-mono" id="wl-sb-role">Wing Lead</div>
+          </div>
+        </div>
+        <nav class="dash-sidebar-nav">
+          <div class="dash-nav-item active" onclick="wlTab('overview')">📊 Overview</div>
+          <div class="dash-nav-item" onclick="wlTab('applications')">📥 Pending Applications <span class="sl-badge-count" id="wl-app-count">0</span></div>
+          <div class="dash-nav-item" onclick="wlTab('members')">👥 Members</div>
+          <div class="dash-nav-item" onclick="wlTab('tasks')">✅ Task Management</div>
+          <div class="dash-nav-item" onclick="wlTab('attendance')">📋 Attendance</div>
+          <div class="dash-nav-item" onclick="navigate('inventory')">📦 Inventory</div>
+          <div class="dash-nav-item" onclick="navigate('minutes')">📝 Meeting Minutes</div>
+        </nav>
+        <div class="dash-sidebar-footer">
+          <button class="btn btn-ghost w-full" style="justify-content:center;font-size:var(--text-sm);" onclick="handleLogout()">🚪 Sign Out</button>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="dash-main">
+
+        <!-- ══ OVERVIEW TAB (M4.1) ══ -->
+        <div class="dash-tab active" id="wl-tab-overview">
+          <div class="dash-header">
+            <div>
+              <div class="section-eyebrow" id="wl-eyebrow" style="text-align:left;">Wing Lead Dashboard</div>
+              <h2 class="dash-title">Welcome back, <span id="wl-welcome-name">—</span> 👋</h2>
+            </div>
+            <div id="wl-wing-badge-header"></div>
+          </div>
+
+          <div class="dash-stats-grid">
+            <div class="stat-card" style="border-color:rgba(0,212,255,0.15);">
+              <div class="stat-value" style="color:var(--ai-cyan);" id="wl-stat-total">0</div>
+              <div class="stat-label">Total Members</div>
+            </div>
+            <div class="stat-card" style="border-color:rgba(16,185,129,0.15);">
+              <div class="stat-value" style="color:var(--success);" id="wl-stat-active">0</div>
+              <div class="stat-label">Active Members</div>
+            </div>
+            <div class="stat-card" style="border-color:rgba(239,68,68,0.15);">
+              <div class="stat-value" style="color:var(--error);" id="wl-stat-inactive">0</div>
+              <div class="stat-label">Inactive Members</div>
+            </div>
+            <div class="stat-card" style="border-color:rgba(245,158,11,0.15);">
+              <div class="stat-value" style="color:var(--warning);" id="wl-stat-tasks">0</div>
+              <div class="stat-label">Open Tasks</div>
+            </div>
+          </div>
+
+          <!-- Task completion chart -->
+          <div class="dash-section-title">Task Completion Progress</div>
+          <div class="dash-card">
+            <div class="task-progress-list" id="wl-task-progress"></div>
+          </div>
+        </div>
+
+        <!-- ══ PENDING APPLICATIONS TAB (Milestone 5) ══ -->
+        <div class="dash-tab" id="wl-tab-applications">
+          <div class="dash-header">
+            <h2 class="dash-title">Pending Applications</h2>
+            <div class="dash-header-meta font-mono">View only · Final approval by Student Lead</div>
+          </div>
+          <div class="dash-card" style="padding:0;">
+            <div id="wl-applications-list"></div>
+          </div>
+        </div>
+
+        <!-- ══ MEMBERS TAB (M4.2 + M4.3) ══ -->
+        <div class="dash-tab" id="wl-tab-members">
+          <div class="dash-header">
+            <h2 class="dash-title">Member List</h2>
+            <div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;">
+              <!-- M4.3: Active/Inactive filter -->
+              <div class="filter-tabs">
+                <button class="filter-tab active" onclick="filterWlMembers('all', this)">All</button>
+                <button class="filter-tab" onclick="filterWlMembers('active', this)">Active</button>
+                <button class="filter-tab" onclick="filterWlMembers('inactive', this)">Inactive</button>
+              </div>
+              <input class="form-input" id="wl-member-search" placeholder="Search members…" style="width:200px;" oninput="renderWlMembers()"/>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table id="wl-members-table">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Member ID</th>
+                  <th>Year / Branch</th>
+                  <th>Status</th>
+                  <th>Tasks</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="wl-members-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ══ TASK MANAGEMENT TAB (M4.5–M4.9) ══ -->
+        <div class="dash-tab" id="wl-tab-tasks">
+          <div class="dash-header">
+            <h2 class="dash-title">Task Management</h2>
+            <button class="btn btn-primary btn-sm" onclick="openTaskModal()">+ Assign Task</button>
+          </div>
+
+          <!-- Task filters -->
+          <div class="task-filters" style="margin-bottom:var(--space-5);">
+            <button class="task-filter-btn active" onclick="filterTasks('all', this)">All Tasks</button>
+            <button class="task-filter-btn" onclick="filterTasks('Research', this)">Research</button>
+            <button class="task-filter-btn" onclick="filterTasks('Event Duty', this)">Event Duties</button>
+            <button class="task-filter-btn" onclick="filterTasks('Project', this)">Projects</button>
+            <button class="task-filter-btn" onclick="filterTasks('pending', this)">Pending</button>
+            <button class="task-filter-btn" onclick="filterTasks('completed', this)">Completed</button>
+          </div>
+
+          <div class="task-board" id="wl-task-board">
+            <div class="dash-empty">No tasks yet. Assign your first task above.</div>
+          </div>
+        </div>
+
+        <!-- ══ ATTENDANCE TAB (M4.4) ══ -->
+        <div class="dash-tab" id="wl-tab-attendance">
+          <div class="dash-header">
+            <h2 class="dash-title">Attendance Status</h2>
+            <div class="dash-header-meta font-mono">Session: June 2025</div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Member ID</th>
+                  <th>Jun 14</th>
+                  <th>Jun 21</th>
+                  <th>Jun 28</th>
+                  <th>Jul 5</th>
+                  <th>Attendance %</th>
+                </tr>
+              </thead>
+              <tbody id="wl-attendance-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </main>
+    </div>
+
+    <!-- Task assignment modal (M4.5–M4.6) -->
+    <div class="modal-overlay hidden" id="task-modal" onclick="closeTaskModal()">
+      <div class="modal-box" style="max-width:520px;" onclick="event.stopPropagation()">
+        <h3 class="modal-title">Assign New Task</h3>
+        <p class="modal-sub">Create and assign a task to a wing member.</p>
+        <div style="display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-5);">
+          <div class="form-group">
+            <label class="form-label">Task Title *</label>
+            <input class="form-input" id="task-title" placeholder="e.g. Research GANs for next workshop"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Task Type *</label>
+            <select class="form-select" id="task-type">
+              <option value="">Select type</option>
+              <option value="Research">Research</option>
+              <option value="Event Duty">Event Duty</option>
+              <option value="Project">Project</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assign To *</label>
+            <select class="form-select" id="task-assignee"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Due Date</label>
+            <input class="form-input" id="task-due" type="date"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-textarea" id="task-desc" rows="3" placeholder="Task details…" style="resize:vertical;"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6);">
+          <button class="btn btn-ghost" onclick="closeTaskModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitTask()">Assign Task</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================
+       CORE LEAD DASHBOARD — Milestone 3
+  ============================================================ -->
+  <div data-page="corelead">
+    <div class="navbar-spacer"></div>
+    <div class="dash-layout">
+
+      <!-- Sidebar -->
+      <aside class="dash-sidebar" id="corelead-sidebar">
+        <div class="dash-sidebar-header">
+          <div class="dash-sidebar-avatar" id="cl-sb-avatar" style="background:rgba(245,158,11,0.12);color:rgb(245,158,11);">CL</div>
+          <div>
+            <div class="dash-sidebar-name" id="cl-sb-name">Core Lead</div>
+            <div class="dash-sidebar-role font-mono" id="cl-sb-role">Core Lead</div>
+          </div>
+        </div>
+        <nav class="dash-sidebar-nav">
+          <div class="dash-nav-item active" onclick="clTab('overview')">📊 Overview</div>
+          <div class="dash-nav-item" onclick="clTab('workspace')">🗂️ Workspace</div>
+          <div class="dash-nav-item" onclick="navigate('inventory')">📦 Inventory</div>
+          <div class="dash-nav-item" onclick="navigate('minutes')">📝 Meeting Minutes</div>
+        </nav>
+        <div class="dash-sidebar-footer">
+          <button class="btn btn-ghost w-full" style="justify-content:center;font-size:var(--text-sm);" onclick="handleLogout()">🚪 Sign Out</button>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="dash-main">
+
+        <!-- ══ OVERVIEW TAB ══ -->
+        <div class="dash-tab active" id="cl-tab-overview">
+          <div class="dash-header">
+            <div>
+              <div class="section-eyebrow" id="cl-eyebrow" style="text-align:left;">Core Lead Dashboard</div>
+              <h2 class="dash-title">Welcome back, <span id="cl-welcome-name">—</span> 👋</h2>
+            </div>
+            <div id="cl-role-badge-header"></div>
+          </div>
+
+          <div class="dash-section-title">Your Focus Area</div>
+          <div class="dash-card" id="cl-focus-card">
+            <!-- Populated per role -->
+          </div>
+
+          <div class="dash-section-title">Quick Links</div>
+          <div class="dash-card">
+            <div id="cl-quick-links" style="display:flex;flex-direction:column;gap:var(--space-3);"></div>
+          </div>
+        </div>
+
+        <!-- ══ WORKSPACE TAB ══ -->
+        <div class="dash-tab" id="cl-tab-workspace">
+          <div class="dash-header">
+            <h2 class="dash-title" id="cl-workspace-title">Workspace</h2>
+          </div>
+          <div class="dash-card" id="cl-workspace-card">
+            <!-- Populated per role -->
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       STUDENT LEAD DASHBOARD — Milestone 5 (M5.1–M5.12)
+  ============================================================ -->
+  <div data-page="studentlead">
+    <div class="navbar-spacer"></div>
+    <div class="dash-layout">
+
+      <!-- Sidebar (M5.1) -->
+      <aside class="dash-sidebar">
+        <div class="dash-sidebar-header">
+          <div class="dash-sidebar-avatar" id="sl-sb-avatar" style="background:linear-gradient(135deg,var(--ai-cyan-dim),var(--cyber-purple-dim));color:var(--ai-cyan);border-color:rgba(0,212,255,0.3);">AK</div>
+          <div>
+            <div class="dash-sidebar-name" id="sl-sb-name">Student Lead</div>
+            <div class="dash-sidebar-role font-mono">👑 Student Lead</div>
+          </div>
+        </div>
+        <nav class="dash-sidebar-nav">
+          <div class="dash-nav-item active" onclick="slTab('overview')">📊 Overview</div>
+          <div class="dash-nav-item" onclick="slTab('members')">👥 All Members</div>
+          <div class="dash-nav-item" onclick="slTab('approvals')">⏳ Approvals <span class="sl-badge-count" id="sl-approval-count">0</span></div>
+          <div class="dash-nav-item" onclick="slTab('tasks')">✅ Task Overview</div>
+          <div class="dash-nav-item" onclick="slTab('announcements')">📢 Announcements</div>
+          <div class="dash-nav-item" onclick="slTab('events')">📅 Events</div>
+          <div class="dash-nav-item" onclick="navigate('inventory')">📦 Inventory</div>
+          <div class="dash-nav-item" onclick="navigate('minutes')">📝 Meeting Minutes</div>
+        </nav>
+        <div class="dash-sidebar-footer">
+          <button class="btn btn-ghost w-full" style="justify-content:center;font-size:var(--text-sm);" onclick="handleLogout()">🚪 Sign Out</button>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="dash-main">
+
+        <!-- ══ M5.2: OVERVIEW PANEL ══ -->
+        <div class="dash-tab active" id="sl-tab-overview">
+          <div class="dash-header">
+            <div>
+              <div class="section-eyebrow" style="text-align:left;">Student Lead · ACE Club</div>
+              <h2 class="dash-title">Welcome back, <span id="sl-welcome-name">—</span> 👑</h2>
+            </div>
+            <div style="display:flex;gap:var(--space-3);">
+              <button class="btn btn-outline-ai btn-sm" onclick="exportMembersCSV()">⬇ Export CSV</button>
+            </div>
+          </div>
+
+          <!-- Cross-wing stats (M5.2) -->
+          <div class="dash-stats-grid" style="grid-template-columns:repeat(4,1fr);">
+            <div class="stat-card" style="border-color:rgba(0,212,255,0.2);">
+              <div class="stat-value" style="color:var(--ai-cyan);" id="sl-stat-total">0</div>
+              <div class="stat-label">Total Members</div>
+            </div>
+            <div class="stat-card" style="border-color:rgba(16,185,129,0.2);">
+              <div class="stat-value" style="color:var(--success);" id="sl-stat-active">0</div>
+              <div class="stat-label">Active Members</div>
+            </div>
+            <div class="stat-card" style="border-color:rgba(245,158,11,0.2);">
+              <div class="stat-value" style="color:var(--warning);" id="sl-stat-pending">0</div>
+              <div class="stat-label">Pending Approvals</div>
+            </div>
+            <div class="stat-card" style="border-color:rgba(139,92,246,0.2);">
+              <div class="stat-value" style="color:var(--cyber-purple);" id="sl-stat-opentasks">0</div>
+              <div class="stat-label">Open Tasks</div>
+            </div>
+          </div>
+
+          <!-- Wing breakdown -->
+          <div class="dash-section-title">Wing Breakdown</div>
+          <div class="sl-wing-breakdown">
+            <div class="sl-wing-card sl-wing-ai">
+              <div class="sl-wing-icon">⚡</div>
+              <div class="sl-wing-info">
+                <div class="sl-wing-name">AI Wing</div>
+                <div class="sl-wing-count font-mono" id="sl-ai-count">0 members</div>
+              </div>
+              <div class="sl-wing-bar-wrap">
+                <div class="sl-wing-bar sl-wing-bar-ai" id="sl-ai-bar"></div>
+              </div>
+            </div>
+            <div class="sl-wing-card sl-wing-cyber">
+              <div class="sl-wing-icon">🔐</div>
+              <div class="sl-wing-info">
+                <div class="sl-wing-name">Cybersecurity Wing</div>
+                <div class="sl-wing-count font-mono" id="sl-cyber-count">0 members</div>
+              </div>
+              <div class="sl-wing-bar-wrap">
+                <div class="sl-wing-bar sl-wing-bar-cyber" id="sl-cyber-bar"></div>
+              </div>
+            </div>
+            <div class="sl-wing-card sl-wing-embedded">
+              <div class="sl-wing-icon">🔧</div>
+              <div class="sl-wing-info">
+                <div class="sl-wing-name">Embedded Systems Wing</div>
+                <div class="sl-wing-count font-mono" id="sl-emb-count">0 members</div>
+              </div>
+              <div class="sl-wing-bar-wrap">
+                <div class="sl-wing-bar sl-wing-bar-emb" id="sl-emb-bar"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Inventory alerts (M5.2) -->
+          <div class="dash-section-title">Inventory Alerts</div>
+          <div class="sl-alerts" id="sl-inv-alerts"></div>
+
+          <!-- Recent activity -->
+          <div class="dash-section-title">Recent Registrations</div>
+          <div class="dash-card" id="sl-recent-reg">
+            <div class="dash-empty">No recent registrations.</div>
+          </div>
+        </div>
+
+        <!-- ══ M5.4: ALL MEMBERS ══ -->
+        <div class="dash-tab" id="sl-tab-members">
+          <div class="dash-header">
+            <h2 class="dash-title">All Members</h2>
+            <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center;">
+              <button class="btn btn-outline-ai btn-sm" onclick="exportMembersCSV()">⬇ Export CSV</button>
+              <input class="form-input" id="sl-member-search" placeholder="Search name, ID, branch…" style="width:220px;" oninput="renderSlMembers()"/>
+            </div>
+          </div>
+
+          <!-- Wing filter (M5.4) -->
+          <div class="filter-tabs" style="margin-bottom:var(--space-5);width:fit-content;">
+            <button class="filter-tab active" onclick="filterSlMembers('all',this)">All Wings</button>
+            <button class="filter-tab" onclick="filterSlMembers('AI',this)">⚡ AI</button>
+            <button class="filter-tab" onclick="filterSlMembers('Cybersecurity',this)">🔐 Cyber</button>
+            <button class="filter-tab" onclick="filterSlMembers('Embedded Systems',this)">🔧 Embedded</button>
+            <button class="filter-tab" onclick="filterSlMembers('active',this)">Active</button>
+            <button class="filter-tab" onclick="filterSlMembers('inactive',this)">Inactive</button>
+          </div>
+
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Member ID</th>
+                  <th>Wing</th>
+                  <th>Year / Branch</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="sl-members-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ══ M5.3: APPROVALS ══ -->
+        <div class="dash-tab" id="sl-tab-approvals">
+          <div class="dash-header">
+            <h2 class="dash-title">Pending Approvals</h2>
+            <div class="dash-header-meta">New member registrations awaiting review</div>
+          </div>
+          <div id="sl-approvals-list">
+            <div class="dash-empty" style="padding:var(--space-12);">
+              No pending approvals. New registrations will appear here.
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ M5.7–M5.8: TASK OVERVIEW ══ -->
+        <div class="dash-tab" id="sl-tab-tasks">
+          <div class="dash-header">
+            <h2 class="dash-title">Task Overview</h2>
+            <button class="btn btn-primary btn-sm" onclick="openSlTaskModal()">+ Assign to Wing Lead</button>
+          </div>
+
+          <!-- Wing lead task assignment (M5.7) -->
+          <div class="dash-section-title">Wing Lead Tasks</div>
+          <div class="task-board" id="sl-wl-tasks">
+            <div class="dash-empty">No tasks assigned to wing leads yet.</div>
+          </div>
+
+          <!-- Cross-wing task summary (M5.8) -->
+          <div class="dash-section-title" style="margin-top:var(--space-8);">Cross-Wing Task Summary</div>
+          <div class="sl-task-summary" id="sl-task-summary"></div>
+        </div>
+
+        <!-- ══ M5.9–M5.11: ANNOUNCEMENTS ══ -->
+        <div class="dash-tab" id="sl-tab-announcements">
+          <div class="dash-header">
+            <h2 class="dash-title">Announcements</h2>
+            <button class="btn btn-primary btn-sm" onclick="openAnnouncementModal()">+ New Announcement</button>
+          </div>
+
+          <div id="sl-announcements-list">
+            <div class="dash-empty">No announcements yet.</div>
+          </div>
+        </div>
+
+        <!-- ══ M5.12: EVENT MANAGEMENT ══ -->
+        <div class="dash-tab" id="sl-tab-events">
+          <div class="dash-header">
+            <h2 class="dash-title">Event Management</h2>
+            <button class="btn btn-primary btn-sm" onclick="openEventModal()">+ Create Event</button>
+          </div>
+
+          <div id="sl-events-list">
+            <div class="dash-empty">No events created yet.</div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+
+    <!-- ── Assign Task to Wing Lead modal (M5.7) ── -->
+    <div class="modal-overlay hidden" id="sl-task-modal" onclick="closeSlTaskModal()">
+      <div class="modal-box" style="max-width:480px;" onclick="event.stopPropagation()">
+        <h3 class="modal-title">Assign Task to Wing Lead</h3>
+        <div style="display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-5);">
+          <div class="form-group">
+            <label class="form-label">Task Title *</label>
+            <input class="form-input" id="sl-task-title" placeholder="e.g. Prepare workshop material"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assign To *</label>
+            <select class="form-select" id="sl-task-assignee">
+              <option value="">Select Wing Lead</option>
+              <option value="USR-002">⚡ Sneha Mehta (AI Wing Lead)</option>
+              <option value="USR-003">🔐 Vikram Rao (Cyber Wing Lead)</option>
+              <option value="USR-004">🔧 Priya Patil (Embedded Wing Lead)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Task Type *</label>
+            <select class="form-select" id="sl-task-type">
+              <option value="">Select type</option>
+              <option value="Research">Research</option>
+              <option value="Event Duty">Event Duty</option>
+              <option value="Project">Project</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Due Date</label>
+            <input class="form-input" id="sl-task-due" type="date"/>
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6);">
+          <button class="btn btn-ghost" onclick="closeSlTaskModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitSlTask()">Assign Task</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Announcement modal (M5.9) ── -->
+    <div class="modal-overlay hidden" id="announce-modal" onclick="closeAnnouncementModal()">
+      <div class="modal-box" style="max-width:520px;" onclick="event.stopPropagation()">
+        <h3 class="modal-title">New Announcement</h3>
+        <div style="display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-5);">
+          <div class="form-group">
+            <label class="form-label">Title *</label>
+            <input class="form-input" id="ann-title" placeholder="Announcement title"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Target Audience *</label>
+            <select class="form-select" id="ann-target">
+              <option value="all">All Members</option>
+              <option value="AI">AI Wing Only</option>
+              <option value="Cybersecurity">Cyber Wing Only</option>
+              <option value="Embedded Systems">Embedded Wing Only</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Message *</label>
+            <textarea class="form-textarea" id="ann-body" rows="4" placeholder="Write your announcement…" style="resize:vertical;"></textarea>
+          </div>
+          <label style="display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);cursor:pointer;">
+            <input type="checkbox" id="ann-pin" style="accent-color:var(--ai-cyan);width:14px;height:14px;"/>
+            Pin this announcement (shows at top)
+          </label>
+        </div>
+        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6);">
+          <button class="btn btn-ghost" onclick="closeAnnouncementModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitAnnouncement()">Post Announcement</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Event create/edit modal (M5.12) ── -->
+    <div class="modal-overlay hidden" id="event-modal" onclick="closeEventModal()">
+      <div class="modal-box" style="max-width:520px;" onclick="event.stopPropagation()">
+        <h3 class="modal-title" id="event-modal-title">Create Event</h3>
+        <div style="display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-5);">
+          <div class="form-group">
+            <label class="form-label">Event Title *</label>
+            <input class="form-input" id="ev-title" placeholder="e.g. ESP32 IoT Workshop"/>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);">
+            <div class="form-group">
+              <label class="form-label">Date *</label>
+              <input class="form-input" id="ev-date" type="date"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Wing</label>
+              <select class="form-select" id="ev-wing">
+                <option value="all">All Wings</option>
+                <option value="AI">AI Wing</option>
+                <option value="Cybersecurity">Cybersecurity</option>
+                <option value="Embedded Systems">Embedded Systems</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);">
+            <div class="form-group">
+              <label class="form-label">Location</label>
+              <input class="form-input" id="ev-location" placeholder="e.g. Lab 302"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Duration</label>
+              <input class="form-input" id="ev-duration" placeholder="e.g. 2 hrs"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-textarea" id="ev-desc" rows="3" placeholder="Brief event description…" style="resize:vertical;"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6);">
+          <button class="btn btn-ghost" onclick="closeEventModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitEvent()">Save Event</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================
+       INVENTORY MANAGEMENT — Milestone 6 (M6.1–M6.9)
+  ============================================================ -->
+  <div data-page="inventory">
+    <div class="navbar-spacer"></div>
+    <div class="dash-layout">
+
+      <!-- Sidebar -->
+      <aside class="dash-sidebar">
+        <div class="dash-sidebar-header">
+          <div class="dash-sidebar-avatar" id="inv-sb-avatar" style="background:var(--embedded-green-dim);color:var(--embedded-green);border-color:rgba(57,255,20,0.2);">📦</div>
+          <div>
+            <div class="dash-sidebar-name" id="inv-sb-name">—</div>
+            <div class="dash-sidebar-role font-mono" id="inv-sb-role">—</div>
+          </div>
+        </div>
+        <nav class="dash-sidebar-nav">
+          <div class="dash-nav-item active" onclick="invTab('overview')">📊 Overview</div>
+          <div class="dash-nav-item" onclick="invTab('items')">📋 All Items</div>
+          <div class="dash-nav-item" onclick="invTab('issue')">📤 Issue Item</div>
+          <div class="dash-nav-item" onclick="invTab('return')">📥 Return Item</div>
+          <div class="dash-nav-item" onclick="invTab('log')">📜 Activity Log</div>
+        </nav>
+        <div class="dash-sidebar-footer">
+          <button class="btn btn-ghost w-full" style="justify-content:center;font-size:var(--text-sm);" onclick="goBackToDash()">← Back to Dashboard</button>
+        </div>
+      </aside>
+
+      <!-- Main -->
+      <main class="dash-main">
+
+        <!-- ══ OVERVIEW (M6.1, M6.7) ══ -->
+        <div class="dash-tab active" id="inv-tab-overview">
+          <div class="dash-header">
+            <div>
+              <div class="section-eyebrow" style="text-align:left;">Inventory Management</div>
+              <h2 class="dash-title">Equipment Overview</h2>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="invTab('items'); openAddItemModal()">+ Add Item</button>
+          </div>
+
+          <!-- Alert strip (M6.7) -->
+          <div id="inv-alert-strip" style="margin-bottom:var(--space-6);"></div>
+
+          <!-- Category stat cards (M6.2) -->
+          <div class="inv-cat-grid" id="inv-cat-grid"></div>
+
+          <!-- Low stock table (M6.7) -->
+          <div class="dash-section-title">Low Stock Items</div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr><th>Item</th><th>Category</th><th>Wing</th><th>In Stock</th><th>Threshold</th><th>Status</th></tr>
+              </thead>
+              <tbody id="inv-low-stock-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ══ ALL ITEMS (M6.3, M6.4) ══ -->
+        <div class="dash-tab" id="inv-tab-items">
+          <div class="dash-header">
+            <h2 class="dash-title">All Inventory Items</h2>
+            <div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;">
+              <button class="btn btn-primary btn-sm" onclick="openAddItemModal()">+ Add Item</button>
+              <select class="form-select" id="inv-cat-filter" style="width:160px;" onchange="renderInvItems()">
+                <option value="all">All Categories</option>
+                <option value="ESP32 Kits">ESP32 Kits</option>
+                <option value="Arduino Boards">Arduino Boards</option>
+                <option value="Components">Components</option>
+                <option value="Routers">Routers</option>
+                <option value="Switches">Switches</option>
+                <option value="Other">Other</option>
+              </select>
+              <input class="form-input" id="inv-search" placeholder="Search items…" style="width:200px;" oninput="renderInvItems()"/>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr><th>Item Name</th><th>Category</th><th>Wing</th><th>Total</th><th>In Stock</th><th>Issued</th><th>Condition</th><th>Actions</th></tr>
+              </thead>
+              <tbody id="inv-items-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ══ ISSUE ITEM (M6.5) ══ -->
+        <div class="dash-tab" id="inv-tab-issue">
+          <div class="dash-header">
+            <h2 class="dash-title">Issue Equipment</h2>
+            <div class="dash-header-meta">Record equipment being issued to a member</div>
+          </div>
+          <div class="inv-form-card">
+            <div class="reg-form-grid">
+              <div class="form-group">
+                <label class="form-label">Item *</label>
+                <select class="form-select" id="issue-item-id" onchange="updateIssueMax()">
+                  <option value="">Select item</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Issued To (Member Name) *</label>
+                <input class="form-input" id="issue-to" placeholder="Enter member name"/>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Quantity *</label>
+                <input class="form-input" id="issue-qty" type="number" min="1" value="1" placeholder="1"/>
+                <div class="form-error" id="issue-qty-error"></div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Expected Return Date</label>
+                <input class="form-input" id="issue-return-date" type="date"/>
+              </div>
+              <div class="form-group" style="grid-column:1/-1;">
+                <label class="form-label">Purpose / Notes</label>
+                <textarea class="form-textarea" id="issue-notes" rows="2" placeholder="e.g. For IoT workshop project…" style="resize:vertical;"></textarea>
+              </div>
+            </div>
+            <div style="margin-top:var(--space-5);">
+              <button class="btn btn-primary" onclick="submitIssue()">📤 Issue Equipment</button>
+            </div>
+          </div>
+
+          <!-- Pending issues table (M6.5) -->
+          <div class="dash-section-title" style="margin-top:var(--space-8);">Currently Issued Items</div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr><th>Item</th><th>Issued To</th><th>Qty</th><th>Issued On</th><th>Return By</th><th>Status</th><th>Action</th></tr>
+              </thead>
+              <tbody id="inv-issued-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ══ RETURN ITEM (M6.6) ══ -->
+        <div class="dash-tab" id="inv-tab-return">
+          <div class="dash-header">
+            <h2 class="dash-title">Return Equipment</h2>
+            <div class="dash-header-meta">Mark issued items as returned</div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr><th>Item</th><th>Issued To</th><th>Qty</th><th>Issued On</th><th>Return By</th><th>Status</th><th>Action</th></tr>
+              </thead>
+              <tbody id="inv-return-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ══ ACTIVITY LOG (M6.8) ══ -->
+        <div class="dash-tab" id="inv-tab-log">
+          <div class="dash-header">
+            <h2 class="dash-title">Activity Log</h2>
+            <div class="dash-header-meta font-mono">All issue &amp; return actions</div>
+          </div>
+          <div class="inv-log-list" id="inv-log-list">
+            <div class="dash-empty">No activity yet.</div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+
+    <!-- Add / Edit Item Modal (M6.3) -->
+    <div class="modal-overlay hidden" id="inv-item-modal" onclick="closeAddItemModal()">
+      <div class="modal-box" style="max-width:520px;" onclick="event.stopPropagation()">
+        <h3 class="modal-title" id="inv-modal-title">Add Inventory Item</h3>
+        <div style="display:flex;flex-direction:column;gap:var(--space-4);margin-top:var(--space-5);">
+          <div class="reg-form-grid">
+            <div class="form-group">
+              <label class="form-label">Item Name *</label>
+              <input class="form-input" id="inv-item-name" placeholder="e.g. ESP32 Dev Board"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Category *</label>
+              <select class="form-select" id="inv-item-cat">
+                <option value="">Select category</option>
+                <option value="ESP32 Kits">ESP32 Kits</option>
+                <option value="Arduino Boards">Arduino Boards</option>
+                <option value="Components">Components</option>
+                <option value="Routers">Routers</option>
+                <option value="Switches">Switches</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Wing *</label>
+              <select class="form-select" id="inv-item-wing">
+                <option value="All">All Wings</option>
+                <option value="AI">AI Wing</option>
+                <option value="Cybersecurity">Cybersecurity</option>
+                <option value="Embedded Systems">Embedded Systems</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Total Quantity *</label>
+              <input class="form-input" id="inv-item-qty" type="number" min="1" placeholder="e.g. 10"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Low Stock Threshold</label>
+              <input class="form-input" id="inv-item-threshold" type="number" min="1" placeholder="e.g. 3"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Condition</label>
+              <select class="form-select" id="inv-item-condition">
+                <option value="Good">Good</option>
+                <option value="Fair">Fair</option>
+                <option value="Needs Repair">Needs Repair</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes / Description</label>
+            <textarea class="form-textarea" id="inv-item-notes" rows="2" placeholder="Optional notes…" style="resize:vertical;"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6);">
+          <button class="btn btn-ghost" onclick="closeAddItemModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitInventoryItem()">Save Item</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================
+       MEETING MINUTES REPOSITORY — Milestone 7 (M7.1–M7.8)
+  ============================================================ -->
+  <div data-page="minutes">
+    <div class="navbar-spacer"></div>
+    <div class="dash-layout">
+
+      <!-- Sidebar -->
+      <aside class="dash-sidebar">
+        <div class="dash-sidebar-header">
+          <div class="dash-sidebar-avatar" id="min-sb-avatar" style="background:var(--cyber-purple-dim);color:var(--cyber-purple);border-color:rgba(139,92,246,0.25);">📝</div>
+          <div>
+            <div class="dash-sidebar-name" id="min-sb-name">—</div>
+            <div class="dash-sidebar-role font-mono" id="min-sb-role">—</div>
+          </div>
+        </div>
+        <nav class="dash-sidebar-nav">
+          <div class="dash-nav-item active" onclick="minTab('list')">📋 All Minutes</div>
+          <div class="dash-nav-item" onclick="minTab('new')">✍️ New Record</div>
+          <div class="dash-nav-item" onclick="minTab('actions')">✅ Action Items</div>
+        </nav>
+        <div class="dash-sidebar-footer">
+          <button class="btn btn-ghost w-full" style="justify-content:center;font-size:var(--text-sm);" onclick="goBackToDash()">← Back to Dashboard</button>
+        </div>
+      </aside>
+
+      <!-- Main -->
+      <main class="dash-main">
+
+        <!-- ══ M7.1: MINUTES LIST ══ -->
+        <div class="dash-tab active" id="min-tab-list">
+          <div class="dash-header">
+            <div>
+              <div class="section-eyebrow" style="text-align:left;">Meeting Repository</div>
+              <h2 class="dash-title">Meeting Minutes</h2>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="minTab('new'); document.querySelectorAll('#minutes .dash-nav-item')[1].classList.add('active');">+ New Record</button>
+          </div>
+
+          <!-- M7.6 Search + M7.7 Filter -->
+          <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-6);flex-wrap:wrap;">
+            <input class="form-input" id="min-search" placeholder="🔍 Search by keyword, title, decision…" style="flex:1;min-width:200px;" oninput="renderMinutesList()"/>
+            <select class="form-select" id="min-wing-filter" style="width:180px;" onchange="renderMinutesList()">
+              <option value="all">All Wings</option>
+              <option value="AI">AI Wing</option>
+              <option value="Cybersecurity">Cybersecurity</option>
+              <option value="Embedded Systems">Embedded Systems</option>
+              <option value="General">General / All Wings</option>
+            </select>
+          </div>
+
+          <div id="min-list-container">
+            <div class="dash-empty">No meeting minutes yet. Create your first record.</div>
+          </div>
+        </div>
+
+        <!-- ══ M7.2: NEW RECORD ══ -->
+        <div class="dash-tab" id="min-tab-new">
+          <div class="dash-header">
+            <h2 class="dash-title" id="min-form-title">New Meeting Record</h2>
+          </div>
+          <div class="inv-form-card">
+            <input type="hidden" id="min-edit-id"/>
+            <div class="reg-form-grid" style="margin-bottom:var(--space-5);">
+              <div class="form-group">
+                <label class="form-label">Meeting Title *</label>
+                <input class="form-input" id="min-title" placeholder="e.g. Weekly AI Wing Sync"/>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Date *</label>
+                <input class="form-input" id="min-date" type="date"/>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Wing *</label>
+                <select class="form-select" id="min-wing">
+                  <option value="General">General / All Wings</option>
+                  <option value="AI">AI Wing</option>
+                  <option value="Cybersecurity">Cybersecurity</option>
+                  <option value="Embedded Systems">Embedded Systems</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Attendees</label>
+                <input class="form-input" id="min-attendees" placeholder="e.g. Sneha, Rahul, Ananya"/>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:var(--space-4);">
+              <label class="form-label">Meeting Notes *</label>
+              <textarea class="form-textarea" id="min-notes" rows="5" placeholder="Summarise what was discussed…" style="resize:vertical;"></textarea>
+            </div>
+
+            <div class="form-group" style="margin-bottom:var(--space-4);">
+              <label class="form-label">Decisions Made</label>
+              <textarea class="form-textarea" id="min-decisions" rows="3" placeholder="Key decisions agreed upon…" style="resize:vertical;"></textarea>
+            </div>
+
+            <!-- Action items (M7.2 / M7.8) -->
+            <div class="form-group" style="margin-bottom:var(--space-5);">
+              <label class="form-label">Action Items</label>
+              <p style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--space-2);">Press Enter to add each action item.</p>
+              <div class="skills-input-wrap" id="actions-wrap" onclick="document.getElementById('action-input').focus()">
+                <div class="skills-tags" id="action-tags"></div>
+                <input class="skills-input" id="action-input" placeholder="e.g. Sneha: prepare slides by Friday…"/>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:var(--space-3);">
+              <button class="btn btn-primary" onclick="submitMinutes()">💾 Save Record</button>
+              <button class="btn btn-ghost" onclick="resetMinutesForm()">Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══ M7.8: ACTION ITEMS STATUS ══ -->
+        <div class="dash-tab" id="min-tab-actions">
+          <div class="dash-header">
+            <h2 class="dash-title">Action Items Tracker</h2>
+            <div class="filter-tabs" style="width:fit-content;">
+              <button class="filter-tab active" onclick="filterActions('all',this)">All</button>
+              <button class="filter-tab" onclick="filterActions('open',this)">Open</button>
+              <button class="filter-tab" onclick="filterActions('resolved',this)">Resolved</button>
+            </div>
+          </div>
+          <div id="min-actions-list">
+            <div class="dash-empty">No action items yet.</div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+
+    <!-- M7.3: View Meeting Detail Modal -->
+    <div class="modal-overlay hidden" id="min-detail-modal" onclick="closeMinuteDetail()">
+      <div class="modal-box" style="max-width:640px;max-height:85vh;overflow-y:auto;" onclick="event.stopPropagation()">
+        <div id="min-detail-content"></div>
+        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--border-subtle);">
+          <button class="btn btn-ghost" onclick="closeMinuteDetail()">Close</button>
+          <button class="btn btn-outline-ai btn-sm" id="min-detail-edit-btn">✏️ Edit</button>
+          <button class="btn btn-sm" id="min-detail-delete-btn" style="background:rgba(239,68,68,0.08);color:var(--error);border:1px solid rgba(239,68,68,0.2);border-radius:var(--radius-md);cursor:pointer;">🗑 Delete</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+
+</body>
+</html>
