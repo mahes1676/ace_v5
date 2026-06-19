@@ -2305,17 +2305,104 @@
       color: var(--text-primary);
     }
 
+    /* ============================================================
+       MOBILE DASHBOARD NAVIGATION — off-canvas drawer
+       Replaces the old ".dash-sidebar{display:none}" approach.
+       The sidebar becomes a fixed, full-height drawer that slides
+       in from the left. A floating toggle button + backdrop
+       overlay control it. Feature parity with desktop is preserved
+       because every nav item that lived in the sidebar still
+       exists — it's just reachable via the drawer instead.
+    ============================================================ */
+    .dash-mobile-toggle {
+      display: none;
+      position: fixed;
+      top: calc(var(--navbar-height) + var(--space-3));
+      left: var(--space-4);
+      z-index: 120;
+      align-items: center;
+      gap: var(--space-2);
+      background: var(--bg-card);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      border-radius: var(--radius-md);
+      padding: var(--space-2) var(--space-4);
+      font-family: var(--font-display);
+      font-size: var(--text-sm);
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: var(--shadow-md);
+    }
+
+    .dash-mobile-toggle-icon { font-size: 1.05rem; line-height: 1; }
+
+    .dash-sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 105;
+      opacity: 0;
+      transition: opacity var(--transition-fast);
+    }
+
+    .dash-sidebar-overlay.open {
+      display: block;
+      opacity: 1;
+    }
+
+    .dash-sidebar-close {
+      display: none;
+      align-self: flex-end;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: var(--space-1) var(--space-2);
+    }
+
     /* Dashboard responsive */
     @media (max-width: 1024px) {
       .dash-layout { grid-template-columns: 1fr; }
-      .dash-sidebar { display: none; }
+
+      .dash-mobile-toggle { display: flex; }
+
+      .dash-sidebar {
+        display: flex;
+        position: fixed;
+        top: var(--navbar-height);
+        left: 0;
+        height: calc(100vh - var(--navbar-height));
+        width: min(80vw, 300px);
+        max-width: 320px;
+        z-index: 110;
+        transform: translateX(-105%);
+        transition: transform var(--transition-base, 0.25s ease);
+        box-shadow: var(--shadow-lg);
+      }
+
+      .dash-sidebar.open { transform: translateX(0); }
+
+      .dash-sidebar-close { display: block; }
+
       .dash-stats-grid { grid-template-columns: repeat(2, 1fr); }
+
+      /* Give room at the top of the main content for the floating
+         toggle button so it never overlaps page headers/actions. */
+      .dash-main { padding-top: calc(var(--space-8) + 2.75rem); }
     }
 
     @media (max-width: 640px) {
-      .dash-main { padding: var(--space-4); }
+      .dash-main { padding: var(--space-4); padding-top: calc(var(--space-4) + 3rem); }
       .dash-stats-grid { grid-template-columns: 1fr 1fr; }
       .resources-grid { grid-template-columns: 1fr; }
+      .dash-mobile-toggle-label { display: none; }
+      .dash-mobile-toggle { padding: var(--space-2) var(--space-3); }
+    }
+
+    @media (max-width: 480px) {
+      .dash-stats-grid { grid-template-columns: 1fr; }
     }
 
     /* ============================================================
@@ -2594,6 +2681,11 @@
         align-items: flex-start;
         padding-top: var(--space-10);
       }
+    }
+
+    @media (max-width: 480px) {
+      .modal-overlay { padding: var(--space-3); }
+      .modal-box { padding: var(--space-5); max-height: 90vh; overflow-y: auto; }
     }
 
     /* ============================================================
@@ -5211,4 +5303,226 @@
         -4px -4px 10px rgba(255,255,255,0.05),
         0 0 36px rgba(0,212,255,0.28) !important;
     }
+
+    /* ============================================================
+       PREMIUM UI ENHANCEMENT PASS
+       Pure presentation: glassmorphism, cyber-grid backdrop, a real
+       loading/skeleton system, richer empty/success/error states,
+       and a handful of low-cost micro-animations. No HTML structure,
+       business logic, auth, or workflow behaviour is touched —
+       everything here is additive CSS (plus matching markup inside
+       the existing emptyState()/showToast()/showLoading() helpers).
+    ============================================================ */
+
+    :root {
+      --glass-bg: rgba(26, 31, 46, 0.55);
+      --glass-border: rgba(255, 255, 255, 0.07);
+      --glow-cyan-sm: 0 0 12px rgba(0,212,255,0.25);
+      --glow-purple-sm: 0 0 12px rgba(139,92,246,0.22);
+      --glow-green-sm: 0 0 12px rgba(57,255,20,0.18);
+      --transition-base: 220ms cubic-bezier(.4,0,.2,1);
+    }
+
+    /* ── Cyber grid backdrop ──────────────────────────────────────
+       One fixed, non-interactive layer behind all content. Static
+       by default (cheapest possible), tiny animated sheen only on
+       the line intersections — GPU-cheap background-position tween,
+       no per-frame JS, respects prefers-reduced-motion already
+       defined above. */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(0,212,255,0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,0.035) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 0%, transparent 75%);
+      -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 0%, transparent 75%);
+      opacity: 0.6;
+    }
+
+    /* Keep real content above the grid layer without having to
+       touch every existing container's z-index. */
+    [data-page] { position: relative; z-index: 1; }
+
+    /* ── Glassmorphism utility ── */
+    .glass {
+      background: var(--glass-bg) !important;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--glass-border) !important;
+    }
+
+    /* Sidebars read better as glass once they're floating drawers */
+    @media (max-width: 1024px) {
+      .dash-sidebar {
+        background: rgba(20, 24, 36, 0.86) !important;
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+    }
+
+    /* ── Subtle animated accent line under the navbar ── */
+    .navbar::after {
+      content: '';
+      position: absolute;
+      left: 0; right: 0; bottom: -1px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--ai-cyan), var(--cyber-purple), transparent);
+      background-size: 200% 100%;
+      opacity: 0.35;
+      animation: navbarSheen 8s linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) { .navbar::after { animation: none; } }
+    @keyframes navbarSheen { 0%{background-position:0% 0;} 100%{background-position:200% 0;} }
+
+    /* ── Refined hover lift (cards, used additively — no conflict
+       with the existing nm box-shadow rules since transform isn't
+       declared there) ── */
+    .card, .wing-card, .team-card, .event-card, .resource-card,
+    .inv-cat-card, .min-card, .sl-wing-card, .sl-event-card,
+    .task-card, .dash-event-card, .stat-card {
+      transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base) !important;
+    }
+    .card:hover, .wing-card:hover, .resource-card:hover,
+    .sl-wing-card:hover, .sl-event-card:hover, .dash-event-card:hover {
+      transform: translateY(-3px);
+    }
+
+    /* ── Button micro-interaction ── */
+    .btn { transition: transform var(--transition-base), box-shadow var(--transition-base), background var(--transition-base), border-color var(--transition-base) !important; }
+    .btn:active:not(:disabled) { transform: translateY(0) scale(0.97); }
+
+    /* ── Button loading state (presentational only — toggled by
+       adding/removing the "is-loading" class from JS if/when a
+       call site opts in; nothing currently calls it, so no existing
+       behaviour changes) ── */
+    .btn.is-loading {
+      color: transparent !important;
+      pointer-events: none;
+      position: relative;
+    }
+    .btn.is-loading::after {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      top: 50%; left: 50%;
+      margin: -8px 0 0 -8px;
+      border: 2px solid rgba(255,255,255,0.25);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    /* ── Input focus glow (extends existing :focus rules) ── */
+    .form-input:focus, .form-select:focus, .form-textarea:focus,
+    .dash-nav-item:focus-visible, .filter-tab:focus-visible,
+    .btn:focus-visible {
+      box-shadow: 0 0 0 3px var(--ai-cyan-glow), var(--nm-inset) !important;
+    }
+
+    /* ── Sortable table header affordance ── */
+    th { transition: color var(--transition-fast); }
+    th:hover { color: var(--ai-cyan) !important; }
+
+    tbody tr { transition: background var(--transition-fast); }
+
+    /* ════════════════════════════════════════════════════════════
+       LOADING SYSTEM
+       (.loading-spinner already existed only as a JS-injected
+       style — it now lives here properly, plus size variants and
+       a full skeleton-loader set for table/card placeholders.)
+    ════════════════════════════════════════════════════════════ */
+    .loading-spinner {
+      width: 18px; height: 18px;
+      border: 2px solid var(--border-subtle);
+      border-top-color: var(--ai-cyan);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    .loading-spinner-sm { width: 14px; height: 14px; border-width: 2px; }
+    .loading-spinner-lg { width: 28px; height: 28px; border-width: 3px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .dash-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-3);
+      padding: var(--space-10);
+      color: var(--text-muted);
+    }
+
+    /* Skeleton placeholders — shimmer, GPU-only background-position
+       animation, used where a section is rendering for the first
+       time and the data isn't ready yet. */
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background: var(--nm-base-dark);
+      border-radius: var(--radius-md);
+      background-image: linear-gradient(
+        100deg,
+        rgba(255,255,255,0) 30%,
+        rgba(255,255,255,0.06) 50%,
+        rgba(255,255,255,0) 70%
+      );
+      background-size: 200% 100%;
+      animation: skeletonShimmer 1.6s ease-in-out infinite;
+    }
+    @keyframes skeletonShimmer { 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
+    @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+    .skeleton-text { height: 0.9em; margin-bottom: var(--space-2); width: 100%; }
+    .skeleton-text.w-60 { width: 60%; }
+    .skeleton-text.w-40 { width: 40%; }
+    .skeleton-card {
+      height: 110px;
+      border: 1px solid var(--border-subtle);
+    }
+    .skeleton-row { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); }
+
+    /* ════════════════════════════════════════════════════════════
+       EMPTY / SUCCESS / ERROR STATES
+    ════════════════════════════════════════════════════════════ */
+    .dash-empty-icon {
+      font-size: 2rem;
+      margin-bottom: var(--space-3);
+      display: inline-block;
+      animation: emptyFloat 3s ease-in-out infinite;
+    }
+    @keyframes emptyFloat { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-4px);} }
+    @media (prefers-reduced-motion: reduce) { .dash-empty-icon { animation: none; } }
+
+    .state-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-3);
+      padding: var(--space-4) var(--space-5);
+      border-radius: var(--radius-lg);
+      font-size: var(--text-sm);
+      line-height: 1.5;
+      animation: fadeInUp 220ms ease both;
+    }
+    .state-banner-success { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.25); color: var(--success); }
+    .state-banner-error   { background: rgba(239,68,68,0.08);  border: 1px solid rgba(239,68,68,0.25);  color: var(--error); }
+    .state-banner-warning { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); color: var(--warning); }
+
+    @keyframes fadeInUp { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:translateY(0);} }
+
+    /* ── Toast: glass + a touch more presence ── */
+    .toast {
+      background: var(--glass-bg) !important;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      animation: fadeInUp 240ms ease both;
+    }
+
+    /* ── Modal entrance ── */
+    .modal-box { animation: fadeInUp 240ms ease both; }
+    .modal-overlay:not(.hidden) { animation: fadeInUp 180ms ease both; }
 

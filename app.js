@@ -11,13 +11,13 @@
 
   // M8.4 — Empty state
   function emptyState(msg,icon='📭'){
-    return `<div class="dash-empty"><div style="font-size:2rem;margin-bottom:var(--space-3);">${icon}</div>${msg}</div>`;
+    return `<div class="dash-empty"><div class="dash-empty-icon">${icon}</div>${msg}</div>`;
   }
 
   // M8.3 — Loading state
   function showLoading(id,msg='Loading…'){
     const e=getEl(id);
-    if(e) e.innerHTML=`<div style="display:flex;align-items:center;justify-content:center;gap:var(--space-3);padding:var(--space-10);color:var(--text-muted);"><div class="loading-spinner"></div><span class="font-mono" style="font-size:var(--text-sm);">${msg}</span></div>`;
+    if(e) e.innerHTML=`<div class="dash-loading"><div class="loading-spinner"></div><span class="font-mono" style="font-size:var(--text-sm);">${msg}</span></div>`;
   }
 
   // M8.5 — Safe render wrapper
@@ -38,7 +38,7 @@
     const cols={success:'var(--success)',error:'var(--error)',warning:'var(--warning)'};
     const t=document.createElement('div');
     t.className=`toast toast-${type}`;
-    t.innerHTML=`<span style="font-weight:700;color:${cols[type]}">${icons[type]}</span><span>${msg}</span>`;
+    t.innerHTML=`<span class="toast-icon" style="font-weight:700;color:${cols[type]}">${icons[type]}</span><span>${msg}</span>`;
     c.appendChild(t);
     setTimeout(()=>{ t.style.cssText='opacity:0;transform:translateY(8px);transition:all 300ms ease;'; setTimeout(()=>t.remove(),300); },3500);
   }
@@ -110,6 +110,9 @@
     if(target){ target.classList.add('page-active'); window.location.hash=page; window.scrollTo({top:0,behavior:'instant'}); }
     closeMobileMenu();
     updateNavActiveState(page);
+    const toggleBtn=getEl('dashMobileToggle');
+    if(toggleBtn) toggleBtn.style.display=target&&target.querySelector('.dash-sidebar')?'':'none';
+    closeDashSidebar();
     const s=getSession();
     switch(page){
       case 'home':       triggerHomeAnimations(); setTimeout(()=>initScrollReveal(),200); break;
@@ -189,6 +192,34 @@
     }
   });
   window.addEventListener('resize',()=>{ if(window.innerWidth>768) closeMobileMenu(); });
+
+  // ── Mobile dashboard sidebar (off-canvas drawer) ──
+  // One toggle works for every role: it finds the .dash-sidebar that
+  // lives inside whichever [data-page] section is currently active,
+  // so President/Wing Lead/Core Lead/Member/Inventory/Minutes all get
+  // the same mobile navigation for free.
+  function activeDashSidebar(){
+    const activePage=document.querySelector('[data-page].page-active');
+    return activePage?activePage.querySelector('.dash-sidebar'):null;
+  }
+  function toggleDashSidebar(){
+    const sb=activeDashSidebar(); if(!sb) return;
+    const opening=!sb.classList.contains('open');
+    sb.classList.toggle('open',opening);
+    getEl('dashSidebarOverlay')?.classList.toggle('open',opening);
+    document.body.style.overflow=opening?'hidden':'';
+  }
+  function closeDashSidebar(){
+    document.querySelectorAll('.dash-sidebar.open').forEach(sb=>sb.classList.remove('open'));
+    getEl('dashSidebarOverlay')?.classList.remove('open');
+    document.body.style.overflow='';
+  }
+  // Close the drawer whenever a nav item inside it is used, and
+  // whenever the viewport grows back past the mobile breakpoint.
+  document.addEventListener('click',e=>{
+    if(e.target.closest('.dash-sidebar .dash-nav-item')) closeDashSidebar();
+  });
+  window.addEventListener('resize',()=>{ if(window.innerWidth>1024) closeDashSidebar(); });
 
   // ══════════════════════════════════════════════════════════════
   // M3 — AUTH & SESSION
@@ -1486,15 +1517,12 @@
 
   const _s=document.createElement('style');
   _s.textContent=`
-    .loading-spinner{width:18px;height:18px;border:2px solid var(--border-subtle);border-top-color:var(--ai-cyan);border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;}
-    @keyframes spin{to{transform:rotate(360deg);}}
     .hidden{display:none!important;}
     [data-page].page-active{animation:pageFadeIn 180ms ease forwards;}
     @keyframes pageFadeIn{from{opacity:0;transform:translateY(5px);}to{opacity:1;transform:translateY(0);}}
     .form-textarea{background:var(--bg-overlay);border:1px solid var(--border-strong);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);color:var(--text-primary);font-family:var(--font-body);font-size:var(--text-sm);width:100%;transition:border-color var(--transition-fast);line-height:1.6;}
     .form-textarea:focus{outline:none;border-color:var(--ai-cyan);box-shadow:0 0 0 3px var(--ai-cyan-glow);}
     .form-textarea::placeholder{color:var(--text-muted);}
-    @media(max-width:1024px){.dash-sidebar.open{display:flex!important;position:fixed;z-index:200;width:var(--sidebar-width);height:calc(100vh - var(--navbar-height));box-shadow:var(--shadow-lg);}}
   `;
   document.head.appendChild(_s);
 

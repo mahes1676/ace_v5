@@ -271,6 +271,17 @@
   </div>
 
   <!-- ============================================================
+       MOBILE DASHBOARD NAVIGATION — off-canvas drawer
+       Toggles whichever .dash-sidebar lives inside the currently
+       active [data-page] section. Works for every role (member,
+       winglead, corelead, studentlead, inventory, minutes).
+  ============================================================ -->
+  <button class="dash-mobile-toggle" id="dashMobileToggle" onclick="toggleDashSidebar()" aria-label="Open dashboard menu">
+    <span class="dash-mobile-toggle-icon">☰</span> <span class="dash-mobile-toggle-label">Menu</span>
+  </button>
+  <div class="dash-sidebar-overlay" id="dashSidebarOverlay" onclick="closeDashSidebar()"></div>
+
+  <!-- ============================================================
        ROUTER ROOT — JS will show/hide pages based on hash
        (Milestone 9: home/login/register now live in their own files)
   ============================================================ -->
@@ -498,6 +509,7 @@
 
       <!-- Sidebar -->
       <aside class="dash-sidebar" id="member-sidebar">
+        <button class="dash-sidebar-close" onclick="closeDashSidebar()" aria-label="Close menu">✕</button>
         <div class="dash-sidebar-header">
           <div class="dash-sidebar-avatar" id="member-sb-avatar">R</div>
           <div>
@@ -657,6 +669,7 @@
 
       <!-- Sidebar -->
       <aside class="dash-sidebar" id="winglead-sidebar">
+        <button class="dash-sidebar-close" onclick="closeDashSidebar()" aria-label="Close menu">✕</button>
         <div class="dash-sidebar-header">
           <div class="dash-sidebar-avatar" id="wl-sb-avatar">WL</div>
           <div>
@@ -858,6 +871,7 @@
 
       <!-- Sidebar -->
       <aside class="dash-sidebar" id="corelead-sidebar">
+        <button class="dash-sidebar-close" onclick="closeDashSidebar()" aria-label="Close menu">✕</button>
         <div class="dash-sidebar-header">
           <div class="dash-sidebar-avatar" id="cl-sb-avatar" style="background:rgba(245,158,11,0.12);color:rgb(245,158,11);">CL</div>
           <div>
@@ -923,6 +937,7 @@
 
       <!-- Sidebar (M5.1) -->
       <aside class="dash-sidebar">
+        <button class="dash-sidebar-close" onclick="closeDashSidebar()" aria-label="Close menu">✕</button>
         <div class="dash-sidebar-header">
           <div class="dash-sidebar-avatar" id="sl-sb-avatar" style="background:linear-gradient(135deg,var(--ai-cyan-dim),var(--cyber-purple-dim));color:var(--ai-cyan);border-color:rgba(0,212,255,0.3);">AK</div>
           <div>
@@ -1251,6 +1266,7 @@
 
       <!-- Sidebar -->
       <aside class="dash-sidebar">
+        <button class="dash-sidebar-close" onclick="closeDashSidebar()" aria-label="Close menu">✕</button>
         <div class="dash-sidebar-header">
           <div class="dash-sidebar-avatar" id="inv-sb-avatar" style="background:var(--embedded-green-dim);color:var(--embedded-green);border-color:rgba(57,255,20,0.2);">📦</div>
           <div>
@@ -1479,6 +1495,7 @@
 
       <!-- Sidebar -->
       <aside class="dash-sidebar">
+        <button class="dash-sidebar-close" onclick="closeDashSidebar()" aria-label="Close menu">✕</button>
         <div class="dash-sidebar-header">
           <div class="dash-sidebar-avatar" id="min-sb-avatar" style="background:var(--cyber-purple-dim);color:var(--cyber-purple);border-color:rgba(139,92,246,0.25);">📝</div>
           <div>
